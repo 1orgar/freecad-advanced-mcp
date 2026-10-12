@@ -44,9 +44,21 @@ def manage_document(action="list", document_name=None, file_path=None):
             "file_path": file_path,
         }
 
+    if act == "active":
+        if not FreeCAD.ActiveDocument:
+            return {"status": "ok", "active_document": None}
+        doc = FreeCAD.ActiveDocument
+        return {
+            "status": "ok",
+            "active_document": doc.Name,
+            "label": getattr(doc, "Label", doc.Name),
+            "file_path": doc.FileName or None,
+            "objects_count": len(doc.Objects),
+        }
+
     doc = _resolve_doc(document_name)
     if not doc:
-        return {"error": f"Document '{document_name or active}' not found."}
+        return {"error": f"Document '{document_name or 'active'}' not found."}
 
     if act == "save":
         if file_path:

@@ -74,26 +74,28 @@ def get_view(
 
     # Set camera angle
     view_norm = (view or "Isometric").strip().lower()
-    if view_norm in ("isometric", "iso"):
-        active_view.viewIsometric()
-    elif view_norm == "front":
-        active_view.viewFront()
-    elif view_norm == "top":
-        active_view.viewTop()
-    elif view_norm in ("rear", "back"):
-        active_view.viewRear()
-    elif view_norm == "left":
-        active_view.viewLeft()
-    elif view_norm == "right":
-        active_view.viewRight()
-    elif view_norm == "bottom":
-        active_view.viewBottom()
-    elif view_norm == "dimetric":
-        active_view.viewDimetric()
-    elif view_norm == "axonometric":
-        active_view.viewAxonometric()
-    else:
-        active_view.viewIsometric()
+    view_msg_map = {
+        "isometric": "ViewIsometric",
+        "iso": "ViewIsometric",
+        "front": "ViewFront",
+        "top": "ViewTop",
+        "rear": "ViewRear",
+        "back": "ViewRear",
+        "left": "ViewLeft",
+        "right": "ViewRight",
+        "bottom": "ViewBottom",
+        "dimetric": "ViewDimetric",
+        "axonometric": "ViewAxonometric",
+    }
+    msg = view_msg_map.get(view_norm, "ViewIsometric")
+
+    h = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+    old_anim = h.GetBool("EnableAnimation", True)
+    try:
+        h.SetBool("EnableAnimation", False)
+        FreeCADGui.SendMsgToActiveView(msg)
+    finally:
+        h.SetBool("EnableAnimation", old_anim)
 
     # Fit framing
     if target_vo:
@@ -105,6 +107,18 @@ def get_view(
             active_view.fitAll()
     else:
         active_view.fitAll()
+
+    # Flush Qt event loop so camera and scene graph updates are rendered immediately
+    try:
+        FreeCADGui.updateGui()
+        try:
+            from PySide import QtWidgets
+            QtWidgets.QApplication.processEvents()
+        except ImportError:
+            from PySide2 import QtWidgets
+            QtWidgets.QApplication.processEvents()
+    except Exception:
+        pass
 
     # Determine output path
     if not output_path:
