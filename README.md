@@ -49,43 +49,6 @@ FreeCAD Advanced MCP equips AI assistants with 11 specialized engineering tools:
 
 ---
 
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    subgraph AI Clients
-        CL[Claude Desktop / Code]
-        AG[Antigravity / Gemini]
-        CR[Cursor / Windsurf]
-    end
-
-    subgraph FreeCAD Advanced MCP
-        SHIM[Node.js stdio Shim<br/>(Optional for stdio clients)]
-        HTTP[HTTP Server / SSE<br/>127.0.0.1:39280/mcp]
-        DISPATCH[JSON-RPC Dispatcher & Protocol Handler]
-        EXEC[Qt Main-Thread Executor<br/>submit_call / Event Loop]
-    end
-
-    subgraph FreeCAD In-Process Core
-        APP[App::Document & Tree]
-        OCCT[OpenCASCADE Kernel<br/>BRepExtrema, GProp, BRepCheck]
-        GUI[Gui::View3DInventor / Coin3D<br/>OffscreenRenderer & Cameras]
-    end
-
-    CL -->|HTTP or stdio| SHIM
-    SHIM -->|HTTP| HTTP
-    AG -->|Streamable HTTP| HTTP
-    CR -->|HTTP| HTTP
-
-    HTTP --> DISPATCH
-    DISPATCH --> EXEC
-    EXEC --> APP
-    EXEC --> OCCT
-    EXEC --> GUI
-```
-
----
-
 ## 📦 Installation
 
 ### Method 1: Git Clone (Fastest & Recommended)
