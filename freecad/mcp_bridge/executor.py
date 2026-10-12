@@ -97,12 +97,22 @@ class Executor(QObject):
         stderr_tee = TeeWriter(output_queue, "stderr")
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = stdout_tee, stderr_tee
+        import Part
+        import Sketcher
+        try:
+            from freecad.mcp_bridge import cad_helpers
+        except Exception:
+            cad_helpers = None
+
         env = {
             "__name__": "__main__",
             "FreeCAD": FreeCAD,
             "App": FreeCAD,
             "FreeCADGui": FreeCADGui,
             "Gui": FreeCADGui,
+            "Part": Part,
+            "Sketcher": Sketcher,
+            "cad": cad_helpers,
         }
         if filepath is not None:
             env["__file__"] = filepath

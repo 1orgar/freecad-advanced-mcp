@@ -79,18 +79,7 @@ def inspect_geometry(object_name, document_name=None):
         return {"error": f"Object '{object_name}' has no valid Shape."}
 
     bb = shape.BoundBox
-    com = None
-    try:
-        com = shape.CenterOfMass
-    except Exception:
-        pass
-    if com is None and len(shape.Solids) > 0:
-        try:
-            com = shape.Solids[0].CenterOfMass
-        except Exception:
-            pass
-    if com is None:
-        com = bb.Center
+    com = _get_robust_com(shape)
 
     # 3D Print and Topology audit
     is_valid = shape.isValid()
@@ -141,27 +130,93 @@ def inspect_geometry(object_name, document_name=None):
     }
 
 
-def check_clearance(object1, object2, document_name=None, tolerance=0.1):
-    """Check spatial interference (collision volume) and clearance distance between two shapes."""
+def check_clearance(object1, object2="all", document_name=None, tolerance=0.1):
+    """Check spatial interference (collision volume) and clearance distance.
+
+    If object2 is "all" or None, checks object1 against all other solid objects in the document.
+    """
     doc = _resolve_doc(document_name)
     if not doc:
         return {"error": "No open FreeCAD document available."}
 
     o1 = doc.getObject(object1)
-    o2 = doc.getObject(object2)
     if not o1:
         return {"error": f"Object 1 '{object1}' not found."}
+
+    s1 = getattr(o1, "Shape", None)
+    if s1 is None or s1.isNull():
+        return {"error": f"Object 1 '{object1}' has no valid Shape."}
+
+    # If checking against all other objects
+    if not object2 or str(object2).strip().lower() == "all":
+        # Collect internal sub-feature names from all bodies so we only check top-level solids
+        sub_feature_names = set()
+        for b in doc.Objects:
+            if b.isDerivedFrom("PartDesign::Body"):
+                for feat in getattr(b, "Group", []):
+                    sub_feature_names.add(feat.Name)
+
+        results = []
+        total_clash_vol = 0.0
+        min_overall_dist = float("inf")
+        has_any_clash = False
+
+        ignored_types = {"App::Line", "App::Plane", "PartDesign::CoordinateSystem", "PartDesign::Plane", "PartDesign::Line"}
+        ignored_names = {"X_Axis", "Y_Axis", "Z_Axis", "XY_Plane", "XZ_Plane", "YZ_Plane", "Origin"}
+
+        for candidate in doc.Objects:
+            if candidate.Name == o1.Name or candidate.Name in sub_feature_names or candidate.Name in ignored_names:
+                continue
+            if candidate.TypeId in ignored_types or candidate.isDerivedFrom("Sketcher::SketchObject"):
+                continue
+
+            c_shape = getattr(candidate, "Shape", None)
+            if c_shape is None or c_shape.isNull() or len(c_shape.Solids) == 0:
+                continue
+
+            pair_res = _check_pair(s1, c_shape, float(tolerance))
+            if pair_res["has_clash"]:
+                has_any_clash = True
+                total_clash_vol += pair_res["clash_volume_mm3"]
+            if pair_res["clearance_distance_mm"] < min_overall_dist:
+                min_overall_dist = pair_res["clearance_distance_mm"]
+
+            results.append({
+                "other_object": candidate.Name,
+                "other_label": candidate.Label,
+                "has_clash": pair_res["has_clash"],
+                "clash_volume_mm3": pair_res["clash_volume_mm3"],
+                "clearance_distance_mm": pair_res["clearance_distance_mm"],
+                "is_touching": pair_res["is_touching"],
+            })
+
+        return {
+            "status": "ok",
+            "target_object": o1.Name,
+            "checked_against_count": len(results),
+            "has_clash": has_any_clash,
+            "total_clash_volume_mm3": round(total_clash_vol, 4),
+            "min_clearance_distance_mm": round(min_overall_dist, 4) if min_overall_dist != float("inf") else None,
+            "pairs": results,
+        }
+
+    # Otherwise check specific pair
+    o2 = doc.getObject(object2)
     if not o2:
         return {"error": f"Object 2 '{object2}' not found."}
 
-    s1 = getattr(o1, "Shape", None)
     s2 = getattr(o2, "Shape", None)
-    if s1 is None or s1.isNull():
-        return {"error": f"Object 1 '{object1}' has no valid Shape."}
     if s2 is None or s2.isNull():
         return {"error": f"Object 2 '{object2}' has no valid Shape."}
 
-    # Bounding Box pre-check
+    pair_res = _check_pair(s1, s2, float(tolerance))
+    pair_res["status"] = "ok"
+    pair_res["object1"] = o1.Name
+    pair_res["object2"] = o2.Name
+    return pair_res
+
+
+def _check_pair(s1, s2, tolerance=0.1):
     bb1 = s1.BoundBox
     bb2 = s2.BoundBox
     bb_overlap = not (
@@ -181,7 +236,6 @@ def check_clearance(object1, object2, document_name=None, tolerance=0.1):
         except Exception:
             pass
 
-    # Exact distance and closest points
     dist_info = s1.distToShape(s2)
     min_dist = dist_info[0]
     closest_pts = {}
@@ -195,15 +249,27 @@ def check_clearance(object1, object2, document_name=None, tolerance=0.1):
             }
 
     return {
-        "status": "ok",
-        "object1": o1.Name,
-        "object2": o2.Name,
         "has_clash": bool(has_clash),
         "clash_volume_mm3": round(clash_volume, 4),
         "clearance_distance_mm": round(min_dist, 4),
-        "is_touching": bool(min_dist <= float(tolerance)),
+        "is_touching": bool(min_dist <= tolerance),
         "closest_points": closest_pts,
     }
+
+
+def _get_robust_com(shape):
+    if hasattr(shape, "Solids") and len(shape.Solids) > 0:
+        tot_v = sum(s.Volume for s in shape.Solids)
+        if tot_v > 1e-6:
+            return FreeCAD.Vector(
+                sum(s.CenterOfMass.x * s.Volume for s in shape.Solids) / tot_v,
+                sum(s.CenterOfMass.y * s.Volume for s in shape.Solids) / tot_v,
+                sum(s.CenterOfMass.z * s.Volume for s in shape.Solids) / tot_v,
+            )
+    try:
+        return shape.CenterOfMass
+    except Exception:
+        return shape.BoundBox.Center
 
 
 def _resolve_doc(doc_name=None):

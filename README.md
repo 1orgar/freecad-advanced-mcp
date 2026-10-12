@@ -227,28 +227,45 @@ Exports objects to production formats.
   - `stl_angular_deflection` *(float)*: Angular deflection in radians (default `0.5`).
 
 ### 5. `set_display_state`
-Controls rendering styling across the scene.
-- **Parameters:**
-  - `objects` *(array of objects)*: List of `{ "name": "Body", "visible": true, "display_mode": "Flat Lines", "transparency": 50 }`.
+Controls rendering styling across the scene: body visibility, Tip display, sketch hiding, and display modes (`Flat Lines`, `Shaded`, `Wireframe`).
 
-### 6. `get_document_tree`
+### 6. `get_section_view`
+Captures non-destructive cross-section cut views using native Coin3D clipping planes:
+- **Parameters:**
+  - `plane` *(string or [x,y,z])*: `XY`, `XZ`, `YZ`, or custom normal vector.
+  - `offset` *(float)*: Distance along normal in mm.
+  - `flip_direction` *(bool)*: Clip the opposite side.
+  - `view`, `coordinate_system`, `direction`, `zoom_margin`, `display_mode`.
+
+### 7. `export_viewer_html`
+Exports the 3D model into a standalone, zero-dependency WebGL HTML viewer with Three.js OrbitControls, dimensions overlay, and HUD.
+
+### 8. `analyze_stability`
+Calculates 2D base contact polygon convex hull, combined center of mass (with optional smartphone/device payload), and tipping angles in all 4 cardinal directions.
+
+### 9. `check_overhangs`
+3D printability analysis: computes downward-facing surface areas, overhang percentage below critical angle (e.g. 45°), Z-bounds, and support necessity.
+
+### 10. `inspect_fasteners`
+Detects cylindrical features, classifies internal holes vs external mounting bosses, matches diameters to standard ISO metric fasteners (M2-M8, clearance, tap, heat-set brass inserts), and reports depths.
+
+### 11. `diagnose_document`
+Performs deep health audit: identifies recompute errors, inspects Sketcher degrees of freedom (`DoF`), conflicting or redundant constraints, broken body Tips, and OpenCASCADE BRepCheck topology defects.
+
+### 12. `insert_reference_dummy`
+Inserts dimensionally accurate, semi-transparent reference models (`iphone_15_pro`, `iphone_15_pro_max`, `generic_phone`, `usb_c_plug`, `mean_well_rs25`, `mikrotik_crs305`, `screw_m3`, `screw_m6`) for fit testing.
+
+### 13. `get_document_tree`
 Returns the active document structure with object hierarchy, labels, and visibility states.
 
-### 7. `manage_document`
-- **Parameters:**
-  - `action` *(string)*: `active`, `list`, `new`, `open`, `save`, `close`, `recompute`.
-  - `filepath` *(string, optional)*: For `open` or `save`.
-  - `name` *(string, optional)*: Document name.
+### 14. `manage_document`
+Lifecycle management: `list`, `new`, `open`, `save`, `close`, `recompute`.
 
-### 8. `undo_redo`
-- **Parameters:**
-  - `action` *(string)*: `undo`, `redo`, `status`.
+### 15. `undo_redo`
+Undo or redo operations in FreeCAD.
 
-### 9. `execute_python`
-Runs Python scripts directly inside FreeCAD.
-- **Parameters:**
-  - `code` *(string, required)*: Python code.
-  - `use_transaction` *(boolean)*: If `true` (default), changes are wrapped in a FreeCAD transaction and aborted on error.
+### 16. `execute_python` & `cad` Helpers
+Runs Python scripts directly inside FreeCAD. Pre-binds `FreeCAD`, `App`, `FreeCADGui`, `Gui`, `Part`, `Sketcher`, and TNP-safe `cad` utilities (`find_face`, `find_edges`, `add_rigid_rect`, `add_slot`). Wrapped in automatic transactions.
 
 ---
 

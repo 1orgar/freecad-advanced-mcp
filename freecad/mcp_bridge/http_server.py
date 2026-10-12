@@ -10,6 +10,7 @@ import FreeCAD
 
 from freecad.mcp_bridge import config, mcp_protocol, paging
 from freecad.mcp_bridge import ops_view, ops_inspect, ops_export, ops_doc
+from freecad.mcp_bridge import ops_dfam, ops_diagnostics, ops_viewer_html, ops_dummies
 from freecad.mcp_bridge.constants import ENDPOINT_PATH, LOG_PREFIX
 from freecad.mcp_bridge.executor import Executor
 
@@ -106,14 +107,28 @@ class McpRequestHandler(BaseHTTPRequestHandler):
             self._send_sse(mcp_protocol.tool_call_response(req_id, result))
         elif name == "get_view":
             self._dispatch_call(req_id, ops_view.get_view, args)
+        elif name == "get_section_view":
+            self._dispatch_call(req_id, ops_view.get_section_view, args)
+        elif name == "export_viewer_html":
+            self._dispatch_call(req_id, ops_viewer_html.export_viewer_html, args)
         elif name == "set_display_state":
             self._dispatch_call(req_id, ops_view.set_display_state, args)
         elif name == "inspect_geometry":
             self._dispatch_call(req_id, ops_inspect.inspect_geometry, args)
+        elif name == "analyze_stability":
+            self._dispatch_call(req_id, ops_dfam.analyze_stability, args)
+        elif name == "check_overhangs":
+            self._dispatch_call(req_id, ops_dfam.check_overhangs, args)
+        elif name == "inspect_fasteners":
+            self._dispatch_call(req_id, ops_dfam.inspect_fasteners, args)
         elif name == "get_document_tree":
             self._dispatch_call(req_id, ops_inspect.get_document_tree, args)
+        elif name == "diagnose_document":
+            self._dispatch_call(req_id, ops_diagnostics.diagnose_document, args)
         elif name == "check_clearance":
             self._dispatch_call(req_id, ops_inspect.check_clearance, args)
+        elif name == "insert_reference_dummy":
+            self._dispatch_call(req_id, ops_dummies.insert_reference_dummy, args)
         elif name == "export_geometry":
             self._dispatch_call(req_id, ops_export.export_geometry, args)
         elif name == "manage_document":
