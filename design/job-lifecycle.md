@@ -1,0 +1,106 @@
+# The life of a job
+
+A **job** is what one `execute_python` call, or one `execute_python_file` call
+whose file was read, creates: the Python code to run, a private output channel, and
+the job token that names it. This walks the whole lifecycle from the job's point of
+view. Terms are collected at the bottom.
+Why it works this way — trade-offs and rejected alternatives — lives in
+[addon-hosted-mcp-server.md](addon-hosted-mcp-server.md). Agent-facing output
+vocabulary (chunk, page, page history) is defined there.
+
+## 1. Born
+
+A job comes into existence on an HTTP request thread, the moment the tool
+call arrives: code, a fresh empty output queue, and a token are bundled
+together. It exists before any decision about *when* it will run.
+
+## 2. In line
+
+The job is appended to the tail of the job queue. Everything ahead of it must
+fully complete before its turn.
+
+While it waits, someone may already be asking about it: the agent got the
+token back within the response timeout and may poll `get_output_page`, finding
+an empty queue and `has_more: true`. From the outside, *waiting in line*
+looks identical to *running but quiet*.
+
+## 3. Taken
+
+The dispatcher's loop reaches the job: it is removed from the queue and
+handed to the job runner. This happens only after the job ahead of it has
+fully returned — never nested inside it. (If a running job refreshes the
+GUI, that can trigger a mid-job wake-up of the dispatcher; the busy latch
+makes that wake-up do nothing, so the order still holds.)
+
+## 4. Running
+
+The job owns the main thread. Everything printed while it runs flows into its
+output queue — and the Report View — as it is produced. The redirect of
+`sys.stdout` and `sys.stderr` is process-wide, so that includes anything else
+that prints during the job, and output from a thread the job started lands in
+whichever job is running when the thread prints. If its code refreshes the GUI,
+repaints happen, but no other job can slip in. Nothing preempts it; it runs
+until it is done. Its own output can never interleave with another job's,
+because jobs run one at a time.
+
+## 5. Finished
+
+Success or error, the same ending: a failure becomes traceback text on the
+job's stderr stream, and the runner's final act is placing the sentinel on
+the queue — the job's last word. That sentinel is later consumed by
+whichever fetch drains it, closing the job's final page — possibly empty —
+with `has_more: false`; the sentinel itself never appears in a page.
+Control returns to the dispatcher's loop, and the next job in line gets its
+turn.
+
+## 6. Afterlife
+
+The job is done, but its page history remains. Every page with content, and
+the final page, was stored as an immutable snapshot at emit time — replayable by
+`page_no`, readable by any client that holds the token. While the job was
+still running, forward fetches drained the live output queue into new pages
+appended to the history.
+
+When the final page is emitted, the retention clock starts (see
+[addon-hosted-mcp-server.md](addon-hosted-mcp-server.md) *Configuration*).
+The history stays retrievable for that period whether or not anyone has read
+every page yet. After that it is deleted the next time a job starts or a page
+is fetched; until then it is unreadable but still in memory. If the bridge
+stops first, the history is
+cleared with everything else and the token dies.
+
+## The unhappy path
+
+If the bridge is stopped while the job is in line, it dies unstarted: its
+output queue and history are cleared, and a client polling its token gets
+`"unknown or expired job_token"` — indistinguishable from any other dead
+token. If the bridge is stopped while the job is running, the job itself
+cannot be interrupted — it runs to completion — but its page history is
+cleared at stop, so undelivered output is lost and its token dies the same
+way.
+
+If the client stops polling before the final page, the job still runs to
+completion, but its history never reaches the retention clock: nothing drains
+the sentinel, so the history stays in memory until the bridge stops.
+
+## Terms
+
+- **Main thread** — the one thread allowed to touch FreeCAD; also runs the
+  GUI. Jobs execute here.
+- **Request thread** — a short-lived thread the HTTP server creates per
+  incoming request. Jobs are *born* here but never *run* here.
+- **Job queue** — the single FIFO line all jobs wait in. The only route a
+  job ever travels.
+- **Dispatcher** — the loop on the main thread that takes jobs from the
+  queue one at a time, each running to completion before the next starts.
+- **Busy latch** — a flag meaning "a job is running right now"; it makes a
+  mid-job wake-up of the dispatcher a harmless no-op.
+- **Output queue** — the job's private channel for everything it prints;
+  forward fetches at `page_no == max + 1` drain this into the next page of
+  the history.
+- **Sentinel** — the end-of-output marker the runner places on the output
+  queue as the job's final act; "no more output will ever come." Consumed
+  by the drain that closes the job's final page — it never appears in a
+  page.
+- **Job token** — the public name of a job's page history; the client
+  presents it to `get_output_page` to read or replay pages.

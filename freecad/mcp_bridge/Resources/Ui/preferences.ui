@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MCPBridgePreferences</class>
+ <widget class="QWidget" name="MCPBridgePreferences">
+  <property name="windowTitle">
+   <string>MCP Bridge</string>
+  </property>
+  <layout class="QVBoxLayout" name="pageLayout">
+   <item>
+    <widget class="QGroupBox" name="serverGroup">
+     <property name="title">
+      <string>Server</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="portLabel">
+        <property name="text">
+         <string>Port</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="Gui::PrefSpinBox" name="portSpinBox">
+        <property name="toolTip">
+         <string>The port the MCP server listens on (127.0.0.1). Changes take effect next time you start the bridge.</string>
+        </property>
+        <property name="minimum">
+         <number>1024</number>
+        </property>
+        <property name="maximum">
+         <number>65535</number>
+        </property>
+        <property name="value">
+         <number>39280</number>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>Port</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Mod/freecad-advanced-mcp</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="timeoutLabel">
+        <property name="text">
+         <string>Max response timeout</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="Gui::PrefSpinBox" name="timeoutSpinBox">
+        <property name="toolTip">
+         <string>The maximum time a request waits for output before returning what it has so far. The client fetches any remaining output automatically.</string>
+        </property>
+        <property name="suffix">
+         <string> s</string>
+        </property>
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>600</number>
+        </property>
+        <property name="singleStep">
+         <number>1</number>
+        </property>
+        <property name="value">
+         <number>15</number>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>MaxResponseTimeoutSeconds</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Mod/freecad-advanced-mcp</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="pageSizeLabel">
+        <property name="text">
+         <string>Max page size</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="Gui::PrefSpinBox" name="pageSizeSpinBox">
+        <property name="toolTip">
+         <string>The maximum size of a single page of output, in units of 1,024 characters (64 means 65,536). Larger output is split across multiple pages, fetched automatically via get_output_page.</string>
+        </property>
+        <property name="suffix">
+         <string> K characters</string>
+        </property>
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>10240</number>
+        </property>
+        <property name="singleStep">
+         <number>1</number>
+        </property>
+        <property name="value">
+         <number>64</number>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>MaxPageSize</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Mod/freecad-advanced-mcp</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="retentionLabel">
+        <property name="text">
+         <string>Page history retention</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="Gui::PrefSpinBox" name="retentionSpinBox">
+        <property name="toolTip">
+         <string>How long a finished job's output pages remain readable via get_output_page before being discarded.</string>
+        </property>
+        <property name="suffix">
+         <string> min</string>
+        </property>
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>1440</number>
+        </property>
+        <property name="singleStep">
+         <number>1</number>
+        </property>
+        <property name="value">
+         <number>5</number>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>MaxHistoryRetentionMinutes</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Mod/freecad-advanced-mcp</cstring>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="clientGroup">
+     <property name="title">
+      <string>Connect an MCP client</string>
+     </property>
+     <layout class="QVBoxLayout" name="clientLayout">
+      <item>
+       <widget class="QLabel" name="clientNote">
+        <property name="textFormat">
+         <enum>Qt::RichText</enum>
+        </property>
+        <property name="text">
+         <string>Most MCP clients speak HTTP — connect them directly to http://127.0.0.1:39280/mcp (using the port above).&lt;br/&gt;&lt;br/&gt;Clients that only speak stdio — e.g. Claude Desktop (not Claude Code) — need a small connector: &lt;a href="https://github.com/1orgar/freecad-advanced-mcp/releases/latest/download/freecad-advanced-mcp.mcpb"&gt;Download the bundle&lt;/a&gt;.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="openExternalLinks">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="helpGroup">
+     <property name="title">
+      <string>Help &amp; feedback</string>
+     </property>
+     <layout class="QVBoxLayout" name="helpLayout">
+      <item>
+       <widget class="QLabel" name="helpNote">
+        <property name="textFormat">
+         <enum>Qt::RichText</enum>
+        </property>
+        <property name="text">
+         <string>Report a bug, ask a question or suggest a feature: &lt;a href="https://github.com/1orgar/freecad-advanced-mcp/issues"&gt;GitHub issues&lt;/a&gt;.&lt;br/&gt;&lt;br/&gt;Project page and documentation: &lt;a href="https://github.com/1orgar/freecad-advanced-mcp"&gt;github.com/1orgar/freecad-advanced-mcp&lt;/a&gt;.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="openExternalLinks">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>Gui::PrefSpinBox</class>
+   <extends>QSpinBox</extends>
+   <header>Gui/PrefWidgets.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

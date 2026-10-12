@@ -1,0 +1,11 @@
+{
+  "name": "freecad-advanced-mcp-shim",
+  "version": "0.0.1",
+  "description": "Claude Desktop stdio<->HTTP shim for FreeCAD Advanced MCP. Zero dependencies.",
+  "private": true,
+  "bin": {
+    "freecad-advanced-mcp-shim": "index.js"
+  },
+  "license": "MIT"
+}
+

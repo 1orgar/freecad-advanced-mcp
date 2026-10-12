@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+node_modules/
+*.mcpb
+*.zip
+
+# OS / Editor files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# FreeCAD autosaves & logs
+*.FCBak
+*.FCStd1
+*.log
+*.png
+!mcp-stdio-shim/icon.png
+!Resources/Icons/*.png
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local AI / workspace memory
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.claude/
+.kilo/
+plans/

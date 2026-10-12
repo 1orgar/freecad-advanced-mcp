@@ -1,0 +1,71 @@
+name: CI & Quality Gate
+
+on:
+  push:
+    branches: [ main, release ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-python:
+    name: Python Syntax & Tool Sync (${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile Python sources
+        run: |
+          python -m compileall -q freecad/ scripts/ send_cmd.py
+
+      - name: Verify Claude Desktop shim tools.json sync
+        run: |
+          python scripts/check_shim_tools.py
+
+      - name: Validate JSON metadata
+        run: |
+          python -c "import json; [json.load(open(f, encoding='utf-8')) for f in ['mcp-stdio-shim/manifest.json', 'mcp-stdio-shim/package.json', 'mcp-stdio-shim/tools.json']]"
+
+      - name: Validate FreeCAD package.xml
+        run: |
+          python -c "import xml.etree.ElementTree as ET; ET.parse('package.xml')"
+
+  validate-shim:
+    name: Node.js Shim Check (${{ matrix.node-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18.x", "20.x", "22.x"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Syntax check index.js
+        run: |
+          node --check mcp-stdio-shim/index.js
+
+      - name: Validate MCP manifest schema
+        run: |
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate mcp-stdio-shim/manifest.json

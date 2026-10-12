@@ -1,0 +1,33 @@
+{
+  "manifest_version": "0.3",
+  "name": "freecad-advanced-mcp",
+  "display_name": "FreeCAD Advanced MCP",
+  "version": "0.0.1",
+  "description": "Connect Claude Desktop to a running FreeCAD session through the FreeCAD Advanced MCP addon.",
+  "icon": "icon.png",
+  "author": {
+    "name": "1orgar",
+    "url": "https://github.com/1orgar/freecad-advanced-mcp"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/index.js"],
+      "env": {
+        "FREECAD_MCP_PORT": "${user_config.port}"
+      }
+    }
+  },
+  "user_config": {
+    "port": {
+      "type": "number",
+      "title": "FreeCAD Advanced MCP port",
+      "description": "Must match FreeCAD's Edit -> Preferences -> FreeCAD Advanced MCP port.",
+      "default": 39280,
+      "required": false
+    }
+  }
+}
+
