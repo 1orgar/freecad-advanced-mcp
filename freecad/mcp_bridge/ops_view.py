@@ -90,12 +90,8 @@ def get_view(
     msg = view_msg_map.get(view_norm, "ViewIsometric")
 
     h = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
-    old_anim = h.GetBool("EnableAnimation", True)
-    try:
-        h.SetBool("EnableAnimation", False)
-        FreeCADGui.SendMsgToActiveView(msg)
-    finally:
-        h.SetBool("EnableAnimation", old_anim)
+    h.SetBool("EnableAnimation", False)
+    FreeCADGui.SendMsgToActiveView(msg)
 
     # Fit framing
     if target_vo:
