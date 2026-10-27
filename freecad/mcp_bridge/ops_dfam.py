@@ -379,6 +379,191 @@ def _classify_fastener(diameter):
     return "Custom"
 
 
+def audit_wall_thickness(
+    object_name,
+    min_thickness=1.2,
+    document_name=None,
+):
+    """Audit solid for thin walls below printable FDM threshold (e.g. < 1.2 mm).
+
+    Parameters:
+    - object_name: Name of target object.
+    - min_thickness: Minimum acceptable wall thickness in mm (default 1.2 for 3 perimeters).
+    - document_name: Optional document name.
+    """
+    doc = _resolve_doc(document_name)
+    if not doc:
+        return {"error": "No open FreeCAD document available."}
+
+    obj = doc.getObject(object_name)
+    if not obj:
+        return {"error": f"Object '{object_name}' not found."}
+
+    shape = getattr(obj, "Shape", None)
+    if shape is None or shape.isNull():
+        return {"error": f"Object '{object_name}' has no valid Shape."}
+
+    min_t = float(min_thickness)
+    thin_regions = []
+    min_found = float("inf")
+
+    # Inspect opposing planar faces
+    faces = [f for f in shape.Faces if f.Surface.TypeId == "Part::GeomPlane"]
+    for i, f1 in enumerate(faces):
+        try:
+            n1 = f1.normalAt(0, 0)
+            c1 = f1.CenterOfMass
+        except Exception:
+            continue
+
+        for f2 in faces[i + 1:]:
+            try:
+                n2 = f2.normalAt(0, 0)
+                dot = n1.x * n2.x + n1.y * n2.y + n1.z * n2.z
+                if dot < -0.98:  # antiparallel within ~11 degrees
+                    diff = FreeCAD.Vector(f2.CenterOfMass.x - c1.x, f2.CenterOfMass.y - c1.y, f2.CenterOfMass.z - c1.z)
+                    dist = abs(diff.x * n1.x + diff.y * n1.y + diff.z * n1.z)
+
+                    if 0.05 < dist < min_t:
+                        tangent_dist = math.sqrt(max(0.0, diff.Length**2 - dist**2))
+                        max_diag = max(math.sqrt(f1.Area), math.sqrt(f2.Area))
+                        if tangent_dist < max_diag * 1.5:
+                            min_found = min(min_found, dist)
+                            thin_regions.append({
+                                "thickness_mm": round(dist, 3),
+                                "location": [round(c1.x, 2), round(c1.y, 2), round(c1.z, 2)],
+                                "normal": [round(n1.x, 3), round(n1.y, 3), round(n1.z, 3)],
+                                "area_mm2": round(min(f1.Area, f2.Area), 2),
+                            })
+            except Exception:
+                continue
+
+    # Deduplicate overlapping regions
+    unique_thin = []
+    for r in thin_regions:
+        if not any(math.dist(r["location"], u["location"]) < 5.0 for u in unique_thin):
+            unique_thin.append(r)
+
+    is_safe = len(unique_thin) == 0
+    return {
+        "status": "ok",
+        "document": doc.Name,
+        "object": obj.Name,
+        "min_thickness_threshold_mm": min_t,
+        "min_detected_thickness_mm": round(min_found, 3) if min_found < float("inf") else None,
+        "safe_for_printing": is_safe,
+        "thin_regions_count": len(unique_thin),
+        "thin_regions": unique_thin[:10],
+        "recommendation": "All walls meet minimum FDM threshold." if is_safe else f"Found {len(unique_thin)} thin wall regions < {min_t}mm that may cause slicing gaps or weak parts.",
+    }
+
+
+def split_part_for_bed(
+    object_name,
+    max_bed_size=256.0,
+    split_axis="X",
+    joint_type="dowel",
+    clearance=0.2,
+    document_name=None,
+):
+    """Split oversized part to fit 3D printer build bed with interlocking joints.
+
+    Parameters:
+    - object_name: Target solid name.
+    - max_bed_size: Maximum printable bed dimension in mm (default 256.0 for Bambu Lab/Prusa).
+    - split_axis: "X", "Y", or "Z" axis to split along (default "X").
+    - joint_type: "dowel" (pin holes for alignment pins) or "flat".
+    - clearance: Joint tolerance in mm (default 0.2).
+    - document_name: Optional document name.
+    """
+    doc = _resolve_doc(document_name)
+    if not doc:
+        return {"error": "No open FreeCAD document available."}
+
+    obj = doc.getObject(object_name)
+    if not obj:
+        return {"error": f"Object '{object_name}' not found."}
+
+    shape = getattr(obj, "Shape", None)
+    if shape is None or shape.isNull():
+        return {"error": f"Object '{object_name}' has no valid Shape."}
+
+    bb = shape.BoundBox
+    axis = split_axis.upper()
+    size_on_axis = bb.XLength if axis == "X" else (bb.YLength if axis == "Y" else bb.ZLength)
+
+    if size_on_axis <= float(max_bed_size):
+        return {
+            "status": "ok",
+            "message": f"Object size on {axis} ({size_on_axis:.1f} mm) already fits within {max_bed_size:.1f} mm bed.",
+            "split_performed": False,
+        }
+
+    # Split coordinate at midpoint
+    split_coord = (bb.XMin + bb.XMax) / 2.0 if axis == "X" else ((bb.YMin + bb.YMax) / 2.0 if axis == "Y" else (bb.ZMin + bb.ZMax) / 2.0)
+
+    margin = 50.0
+    big_box_w = bb.XLength + 2.0 * margin
+    big_box_h = bb.YLength + 2.0 * margin
+    big_box_d = bb.ZLength + 2.0 * margin
+
+    if axis == "X":
+        box_a = Part.makeBox(split_coord - (bb.XMin - margin), big_box_h, big_box_d,
+                              FreeCAD.Vector(bb.XMin - margin, bb.YMin - margin, bb.ZMin - margin))
+        box_b = Part.makeBox((bb.XMax + margin) - split_coord, big_box_h, big_box_d,
+                              FreeCAD.Vector(split_coord, bb.YMin - margin, bb.ZMin - margin))
+    elif axis == "Y":
+        box_a = Part.makeBox(big_box_w, split_coord - (bb.YMin - margin), big_box_d,
+                              FreeCAD.Vector(bb.XMin - margin, bb.YMin - margin, bb.ZMin - margin))
+        box_b = Part.makeBox(big_box_w, (bb.YMax + margin) - split_coord, big_box_d,
+                              FreeCAD.Vector(bb.XMin - margin, split_coord, bb.ZMin - margin))
+    else:
+        box_a = Part.makeBox(big_box_w, big_box_h, split_coord - (bb.ZMin - margin),
+                              FreeCAD.Vector(bb.XMin - margin, bb.YMin - margin, bb.ZMin - margin))
+        box_b = Part.makeBox(big_box_w, big_box_h, (bb.ZMax + margin) - split_coord,
+                              FreeCAD.Vector(bb.XMin - margin, bb.YMin - margin, split_coord))
+
+    part_a = shape.common(box_a)
+    part_b = shape.common(box_b)
+
+    if joint_type == "dowel":
+        pin_r = 1.75  # 3.5 mm pin
+        pin_depth = 12.0
+        cy_mid = (bb.YMin + bb.YMax) / 2.0
+        cz_mid = (bb.ZMin + bb.ZMax) / 2.0
+
+        if axis == "X":
+            pin1 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid - 15.0, cz_mid), FreeCAD.Vector(1, 0, 0))
+            pin2 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid + 15.0, cz_mid), FreeCAD.Vector(1, 0, 0))
+            part_a = part_a.cut(pin1).cut(pin2)
+            part_b = part_b.cut(pin1).cut(pin2)
+
+    obj_a = doc.addObject("Part::Feature", f"{obj.Label}_Part_A")
+    obj_a.Shape = part_a
+    obj_b = doc.addObject("Part::Feature", f"{obj.Label}_Part_B")
+    obj_b.Shape = part_b
+
+    doc.recompute()
+
+    return {
+        "status": "ok",
+        "split_performed": True,
+        "split_axis": axis,
+        "split_coordinate": round(split_coord, 2),
+        "joint_type": joint_type,
+        "part_a": {
+            "name": obj_a.Name,
+            "bounding_box": [round(part_a.BoundBox.XLength, 1), round(part_a.BoundBox.YLength, 1), round(part_a.BoundBox.ZLength, 1)],
+            "fits_bed": max(part_a.BoundBox.XLength, part_a.BoundBox.YLength) <= max_bed_size,
+        },
+        "part_b": {
+            "name": obj_b.Name,
+            "bounding_box": [round(part_b.BoundBox.XLength, 1), round(part_b.BoundBox.YLength, 1), round(part_b.BoundBox.ZLength, 1)],
+            "fits_bed": max(part_b.BoundBox.XLength, part_b.BoundBox.YLength) <= max_bed_size,
+        },
+    }
+
+
 def _get_shape_com(shape):
     """Compute Center of Mass robustly across Solids and Compounds."""
     if hasattr(shape, "Solids") and len(shape.Solids) > 0:

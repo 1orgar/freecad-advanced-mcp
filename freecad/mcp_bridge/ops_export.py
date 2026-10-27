@@ -51,13 +51,19 @@ def export_geometry(
             )
             mesh.write(output_path)
         elif fmt in ("step", "stp"):
-            Part.export([shape], output_path)
+            if hasattr(shape, "exportStep"):
+                shape.exportStep(output_path)
+            else:
+                Part.export([obj], output_path)
         elif fmt == "dxf":
             try:
                 import Import
                 Import.export([obj], output_path)
             except Exception:
-                Part.export([shape], output_path)
+                if hasattr(shape, "exportDxf"):
+                    shape.exportDxf(output_path)
+                else:
+                    Part.export([obj], output_path)
         else:
             return {"error": f"Unsupported export format '{format}'. Use stl, step, 3mf, or dxf."}
 

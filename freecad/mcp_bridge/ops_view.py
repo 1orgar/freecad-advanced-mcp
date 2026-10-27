@@ -123,15 +123,24 @@ def get_view(
         msg = view_msg_map.get(view_norm, "ViewIsometric")
         FreeCADGui.SendMsgToActiveView(msg)
 
+    # Hide sketches to ensure a clean 3D solid render without green/white wireframes
+    for obj in doc.Objects:
+        if obj.isDerivedFrom("Sketcher::SketchObject"):
+            s_vo = gui_doc.getObject(obj.Name)
+            if s_vo and s_vo.Visibility:
+                s_vo.Visibility = False
+
     # Fit framing
     if target_vo:
         try:
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.Selection.addSelection(doc.Name, target_object)
             active_view.fitSelection()
+            FreeCADGui.Selection.clearSelection()
         except Exception:
             active_view.fitAll()
     else:
+        FreeCADGui.Selection.clearSelection()
         active_view.fitAll()
 
     # Apply zoom margin if needed
@@ -145,6 +154,9 @@ def get_view(
             active_view.setCamera(new_cam)
         except Exception:
             pass
+
+    # Ensure selection highlight is cleared right before capture
+    FreeCADGui.Selection.clearSelection()
 
     # Flush Qt event loop
     _flush_gui()
@@ -282,6 +294,76 @@ def get_section_view(
             _flush_gui()
         except Exception:
             pass
+
+
+def get_multi_view(
+    views=None,
+    document_name=None,
+    target_object=None,
+    display_mode="Flat Lines",
+    width=1920,
+    height=1080,
+    background="White",
+    coordinate_system="standard",
+    zoom_margin=1.1,
+    output_dir=None,
+):
+    """Capture multiple camera angles (e.g. Front, Rear, Top, Isometric) in one single tool call.
+
+    Parameters:
+    - views: List of preset names (default: ["Isometric", "Front", "Top", "Rear"]).
+    - document_name: Optional document name.
+    - target_object: Optional target object to frame.
+    - display_mode: "Flat Lines", "Shaded", "Wireframe".
+    - width, height: Output image resolution.
+    - background: "White", "Current", "Black", "Transparent".
+    - coordinate_system: "standard", "rack", "printbed".
+    - output_dir: Optional destination folder.
+    """
+    doc = _resolve_doc(document_name)
+    if not doc:
+        return {"error": "No open FreeCAD document available."}
+
+    if views is None:
+        views = ["Isometric", "Front", "Top", "Rear"]
+
+    if not output_dir:
+        output_dir = os.path.join(FreeCAD.getUserAppDataDir(), "mcp_screenshots")
+    os.makedirs(output_dir, exist_ok=True)
+
+    results = {}
+    ts = int(time.time() * 1000)
+    target_suffix = f"_{target_object}" if target_object else ""
+
+    for v in views:
+        v_name = v.strip().lower()
+        path = os.path.join(output_dir, f"{doc.Name}{target_suffix}_{v_name}_{ts}.png")
+        res = get_view(
+            view=v,
+            document_name=doc.Name,
+            target_object=target_object,
+            display_mode=display_mode,
+            width=width,
+            height=height,
+            background=background,
+            coordinate_system=coordinate_system,
+            zoom_margin=zoom_margin,
+            output_path=path,
+            return_base64=False,
+        )
+        if "status" in res and res["status"] == "ok":
+            results[v] = {
+                "image_path": path,
+                "file_size_bytes": res.get("file_size_bytes", 0),
+            }
+        else:
+            results[v] = {"error": res.get("error", "Failed to capture")}
+
+    return {
+        "status": "ok",
+        "document": doc.Name,
+        "views": results,
+    }
 
 
 def set_display_state(

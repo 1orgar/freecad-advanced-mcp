@@ -162,6 +162,81 @@
     }
   },
   {
+    "name": "get_multi_view",
+    "description": "Capture 4 standard camera angles (Front, Rear, Top, Isometric) in a single tool call with clean shading and optimal framing.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "Isometric",
+            "Front",
+            "Top",
+            "Rear"
+          ],
+          "description": "List of view angles to capture."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        },
+        "target_object": {
+          "type": "string",
+          "description": "Optional target object to frame."
+        },
+        "display_mode": {
+          "type": "string",
+          "enum": [
+            "Flat Lines",
+            "Shaded",
+            "Wireframe"
+          ],
+          "default": "Flat Lines",
+          "description": "3D display mode."
+        },
+        "width": {
+          "type": "integer",
+          "default": 1920
+        },
+        "height": {
+          "type": "integer",
+          "default": 1080
+        },
+        "background": {
+          "type": "string",
+          "enum": [
+            "White",
+            "Current",
+            "Black",
+            "Transparent"
+          ],
+          "default": "White"
+        },
+        "coordinate_system": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "rack",
+            "printbed"
+          ],
+          "default": "standard"
+        },
+        "zoom_margin": {
+          "type": "number",
+          "default": 1.1
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Optional destination directory."
+        }
+      }
+    }
+  },
+  {
     "name": "get_section_view",
     "description": "Capture a cross-section cut view using Coin3D clipping plane without modifying the CAD model. Reveals internal geometry, cable channels, and hollow pockets.",
     "inputSchema": {
@@ -252,7 +327,7 @@
   },
   {
     "name": "export_viewer_html",
-    "description": "Export the 3D model to a standalone, zero-dependency interactive WebGL HTML viewer with Three.js OrbitControls, bounding dimensions, and glassmorphism HUD for instant browser viewing.",
+    "description": "Export the 3D model to a self-contained, zero-dependency interactive WebGL HTML viewer optimized for inline chat rendering (<agent-embed>) or standalone browser viewing. Includes pure WebGL OrbitControls, CAD Flat Lines wireframe edge overlay, and theme integration.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -276,6 +351,15 @@
         "title": {
           "type": "string",
           "description": "Optional title for viewer HUD."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "standalone"
+          ],
+          "default": "chat",
+          "description": "Viewer mode: 'chat' (compact inline card < 450px with <agent-embed>) or 'standalone' (fullscreen)."
         }
       }
     }
@@ -440,6 +524,80 @@
     }
   },
   {
+    "name": "audit_wall_thickness",
+    "description": "Audit 3D solid for thin walls below printable FDM threshold (e.g. < 1.2 mm for 3 perimeters). Identifies fragile regions that could cause slicing voids or structural failure.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "object_name": {
+          "type": "string",
+          "description": "Name of target object to inspect."
+        },
+        "min_thickness": {
+          "type": "number",
+          "default": 1.2,
+          "description": "Minimum acceptable wall thickness in mm (default 1.2)."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        }
+      },
+      "required": [
+        "object_name"
+      ]
+    }
+  },
+  {
+    "name": "split_part_for_bed",
+    "description": "Split oversized parts to fit 3D printer build bed with interlocking alignment dowel joints or puzzle seams.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "object_name": {
+          "type": "string",
+          "description": "Name of target object to split."
+        },
+        "max_bed_size": {
+          "type": "number",
+          "default": 256.0,
+          "description": "Maximum printable build volume size in mm (default 256.0)."
+        },
+        "split_axis": {
+          "type": "string",
+          "enum": [
+            "X",
+            "Y",
+            "Z"
+          ],
+          "default": "X",
+          "description": "Axis along which to split."
+        },
+        "joint_type": {
+          "type": "string",
+          "enum": [
+            "dowel",
+            "flat"
+          ],
+          "default": "dowel",
+          "description": "Joint type: 'dowel' (creates alignment pin holes) or 'flat'."
+        },
+        "clearance": {
+          "type": "number",
+          "default": 0.2,
+          "description": "Joint tolerance clearance in mm."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        }
+      },
+      "required": [
+        "object_name"
+      ]
+    }
+  },
+  {
     "name": "inspect_fasteners",
     "description": "Detect and classify cylindrical features: distinguish internal holes vs external mounting bosses, match diameters to standard ISO metric fasteners (M2-M8, clearance, tap, heat-set brass inserts), and measure depths.",
     "inputSchema": {
@@ -574,6 +732,199 @@
           "description": "Visual transparency percent (default 50)."
         }
       }
+    }
+  },
+  {
+    "name": "cut_component_cavity",
+    "description": "Subtract an accurate mounting cavity for a hardware component (c14_socket, keystone_rj45, raspberry_pi_5, fan_40mm, fan_80mm, mean_well_rs25, mean_well_lrs35) directly from target solid with clearance tolerance.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_object": {
+          "type": "string",
+          "description": "Name of target object to cut."
+        },
+        "dummy_type": {
+          "type": "string",
+          "enum": [
+            "c14_socket",
+            "keystone_rj45",
+            "raspberry_pi_5",
+            "fan_40mm",
+            "fan_80mm",
+            "mean_well_rs25",
+            "mean_well_lrs35",
+            "usb_c_plug"
+          ],
+          "description": "Hardware component type."
+        },
+        "placement": {
+          "type": "object",
+          "properties": {
+            "position": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "rotation": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "description": "Spatial placement [position: [x,y,z], rotation: [yaw,pitch,roll]]."
+        },
+        "clearance": {
+          "type": "number",
+          "default": 0.3,
+          "description": "Fit clearance offset in mm (default 0.3)."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        }
+      },
+      "required": [
+        "target_object",
+        "dummy_type"
+      ]
+    }
+  },
+  {
+    "name": "apply_smart_feature",
+    "description": "Apply a high-level parametric engineering Smart Feature to a 3D model or create a standalone feature: honeycomb, slotted_grill, circular_perforation, heatset_boss (M2-M5), screw_hole, hex_nut_pocket, keystone_jack, c14_inlet, usb_port, fan_mount, rocker_switch, zip_tie_mount, velcro_slot, cable_pass_through, stiffening_ribs, or gusset.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feature_type": {
+          "type": "string",
+          "enum": [
+            "honeycomb",
+            "slotted_grill",
+            "circular_perforation",
+            "heatset_boss",
+            "screw_hole",
+            "hex_nut_pocket",
+            "keystone_jack",
+            "c14_inlet",
+            "usb_port",
+            "fan_mount",
+            "rocker_switch",
+            "zip_tie_mount",
+            "velcro_slot",
+            "cable_pass_through",
+            "stiffening_ribs",
+            "gusset"
+          ],
+          "description": "Smart feature type."
+        },
+        "target_object": {
+          "type": "string",
+          "description": "Optional target object name (PartDesign::Body or Part) to modify."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Feature-specific dimensions (bounds_w, bounds_h, cell_size, wall_thickness, depth, thread, etc.)."
+        },
+        "placement": {
+          "type": "object",
+          "properties": {
+            "position": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "rotation": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "description": "Spatial placement [position: [x,y,z], rotation: [yaw,pitch,roll]]."
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "cut",
+            "fuse",
+            "new_object"
+          ],
+          "default": "cut",
+          "description": "Boolean operation: 'cut' (pocket), 'fuse' (add material), or 'new_object' (standalone solid)."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        }
+      },
+      "required": [
+        "feature_type"
+      ]
+    }
+  },
+  {
+    "name": "generate_drawing",
+    "description": "Generate automated multi-view 2D engineering drawing (Front, Top, Isometric views) and export to PDF or SVG vector formats using FreeCAD TechDraw.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "object_name": {
+          "type": "string",
+          "description": "Name of object to draw."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "pdf",
+            "svg"
+          ],
+          "default": "pdf",
+          "description": "Output drawing format."
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Optional destination file path."
+        },
+        "scale": {
+          "type": "number",
+          "description": "Optional drawing scale (default: auto-fit)."
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "front",
+            "top",
+            "isometric"
+          ],
+          "description": "Views to include in drawing."
+        },
+        "document_name": {
+          "type": "string",
+          "description": "Optional document name."
+        }
+      },
+      "required": [
+        "object_name"
+      ]
+    }
+  },
+  {
+    "name": "get_selection",
+    "description": "Inspect active user selection in FreeCAD GUI. Returns selected objects, faces, edges, and vertices with geometric normals, centers of mass, dimensions, and TNP-safe query filters.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
     }
   },
   {

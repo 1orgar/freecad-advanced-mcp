@@ -29,23 +29,37 @@ Unlike external CLI bridges or headless subprocesses, **FreeCAD Advanced MCP run
 
 ---
 
-## 🛠️ The 11 CAD Tools
+## 🛠️ The 25 CAD Tools
 
-FreeCAD Advanced MCP equips AI assistants with 11 specialized engineering tools:
+FreeCAD Advanced MCP equips AI assistants with 25 specialized engineering tools:
 
 | Category | Tool | Description |
 | :--- | :--- | :--- |
 | **Vision & GUI** | [`get_view`](#1-get_view) | Capture precision screenshots (`Isometric`, `Front`, `Top`, etc.) with `Flat Lines` styling and optimal framing. |
-| | [`set_display_state`](#2-set_display_state) | Batch control object visibility, shading modes, and ghosted transparency. |
-| **Geometry & Inspection** | [`inspect_geometry`](#3-inspect_geometry) | Deep analysis: BoundingBox, volume, surface area, center of mass, and watertight/manifold verification. |
-| | [`check_clearance`](#4-check_clearance) | Real-time interference detection and minimum 3D clearance distance calculation (`distToShape`). |
-| | [`get_document_tree`](#5-get_document_tree) | Retrieve full hierarchical document scene graph, object types, labels, and visibility. |
-| **Manufacturing Export** | [`export_geometry`](#6-export_geometry) | Export solids to **STL** (with custom linear/angular mesh deflection), **STEP** (AP214), **3MF**, or **DXF**. |
-| **Document Lifecycle** | [`manage_document`](#7-manage_document) | Document control: active doc query, list all, create new, open `.FCStd`, save, close, and recompute. |
-| | [`undo_redo`](#8-undo_redo) | Step forward or backward through transaction history. |
-| **Code Execution** | [`execute_python`](#9-execute_python) | Execute Python in FreeCAD Qt main thread with auto-rollback transactions. |
-| | [`execute_python_file`](#10-execute_python_file) | Execute local script files in FreeCAD. |
-| | [`get_output_page`](#11-get_output_page) | Retrieve paged output streams for long console logs. |
+| | [`get_multi_view`](#2-get_multi_view) | Capture 4 camera angles (`Isometric`, `Front`, `Top`, `Rear`) in a single atomic tool call. |
+| | [`get_section_view`](#14-get_section_view) | Non-destructive Coin3D cross-section clipping plane view without altering geometry. |
+| | [`export_viewer_html`](#15-export_viewer_html) | Zero-dependency interactive WebGL 3D CAD viewer for in-chat embeds (`<agent-embed>`) and standalone inspection with CAD edge rendering. |
+| | [`set_display_state`](#13-set_display_state) | Batch control object visibility, shading modes, Tip display, and ghosted transparency. |
+| **Smart Features & Modeling** | [`apply_smart_feature`](#3-apply_smart_feature) | Apply 16 semantic engineering primitives (honeycomb, heat-set bosses, grills, keystones, C14 inlets, ribs, zip-tie saddles). |
+| | [`cut_component_cavity`](#4-cut_component_cavity) | Carve component mounting pockets directly into solids with configurable 3D printing clearance. |
+| **DfAM (3D Printing)** | [`audit_wall_thickness`](#5-audit_wall_thickness) | Scan solids for thin walls (< 1.2 mm) that cause slicing gaps or fragile prints. |
+| | [`split_part_for_bed`](#6-split_part_for_bed) | Split oversized models to fit 3D printer build beds with interlocking alignment dowel sockets. |
+| | [`analyze_stability`](#16-analyze_stability) | Calculate base contact polygon convex hull, combined center of mass, and tipping angles. |
+| | [`check_overhangs`](#17-check_overhangs) | 3D printability analysis: overhang percentage below critical angle, Z-bounds, and support needs. |
+| **Inspection & Selection** | [`get_selection`](#7-get_selection) | Human-in-the-Loop selection inspector: reads clicked faces/edges with TNP-safe query criteria. |
+| | [`inspect_geometry`](#10-inspect_geometry) | Deep analysis: BoundingBox, volume, surface area, center of mass, and watertight/manifold verification. |
+| | [`inspect_fasteners`](#18-inspect_fasteners) | Detect cylindrical features, match ISO metric fasteners (M2-M8), and measure hole/boss depths. |
+| | [`check_clearance`](#11-check_clearance) | Real-time interference detection and minimum 3D clearance distance calculation (`distToShape`). |
+| | [`diagnose_document`](#19-diagnose_document) | Deep health audit: recompute errors, Sketcher DoF, broken body Tips, and BRep topology defects. |
+| **Hardware & Assembly** | [`insert_reference_dummy`](#9-insert_reference_dummy) | Insert accurate reference models (Raspberry Pi 5, C14, Keystones, Fans, DIN rails, PSUs, screws). |
+| | [`get_document_tree`](#20-get_document_tree) | Retrieve full hierarchical document scene graph, object types, labels, and visibility. |
+| **2D Drawings & Export** | [`generate_drawing`](#8-generate_drawing) | Automated TechDraw engineering drawings: multi-view orthogonal + isometric projections to vector PDF/SVG. |
+| | [`export_geometry`](#12-export_geometry) | Export solids to **STL** (with custom deflection), **STEP** (AP214 PartDesign fix), **3MF**, or **DXF**. |
+| **Document Lifecycle** | [`manage_document`](#21-manage_document) | Document control: active doc query, list all, create new, open `.FCStd`, save, close, and recompute. |
+| | [`undo_redo`](#22-undo_redo) | Step forward or backward through transaction history. |
+| **Code Execution** | [`execute_python`](#23-execute_python--cad-helpers) | Execute Python in FreeCAD Qt main thread with auto-rollback transactions. |
+| | [`execute_python_file`](#24-execute_python_file) | Execute local script files in FreeCAD. |
+| | [`get_output_page`](#25-get_output_page) | Retrieve paged output streams for long console logs. |
 
 ---
 
@@ -169,103 +183,124 @@ Captures multi-angle camera views of the 3D scene.
   - `save_path` *(string, optional)*: Explicit PNG file path to save the screenshot.
   - `width` / `height` *(int)*: Viewport resolution (default: `1280x720`).
 
-### 2. `inspect_geometry`
-Performs comprehensive topological and physical property checks on any CAD object.
+### 2. `get_multi_view`
+Captures multiple standard camera angles (`Isometric`, `Front`, `Top`, `Rear`) in a single round-trip:
 - **Parameters:**
-  - `object_name` *(string, required)*: Label or internal name of the object.
-- **Returns:**
-  ```json
-  {
-    "status": "ok",
-    "name": "Body",
-    "type": "PartDesign::Body",
-    "is_valid": true,
-    "is_closed_manifold": true,
-    "bounding_box": {
-      "min": [-127.0, -22.0, -1.5],
-      "max": [127.0, 22.0, 1.5],
-      "dimensions": [254.0, 44.0, 3.0],
-      "center": [0.0, 0.0, 0.0]
-    },
-    "volume_mm3": 33528.0,
-    "surface_area_mm2": 23412.5,
-    "center_of_mass": [0.0, 0.0, 0.0],
-    "topology_counts": {
-      "solids": 1,
-      "faces": 28,
-      "edges": 74,
-      "vertices": 48
-    }
-  }
-  ```
+  - `views` *(array of strings, default: `["Isometric", "Front", "Top", "Rear"]`)*
+  - `target_object` *(string, optional)*: Focus and frame on a specific object.
+  - `display_mode` *(string)*: `Flat Lines`, `Shaded`, `Wireframe`.
+  - `width` / `height` *(int)*: Output resolution (default: `1920x1080`).
 
-### 3. `check_clearance`
-Detects collisions and measures minimal clearance distance between two solids using OpenCASCADE extrema.
+### 3. `apply_smart_feature`
+Semantic CAD primitive library for rapid engineering design without manual sketch constraints:
+- **Supported Features (16 primitives):**
+  - **Patterns:** `honeycomb` (hexagonal ventilation grid), `slotted_grill` (cooling louvers), `circular_perforation` (staggered hole mesh).
+  - **Fasteners & Inserts:** `heatset_boss` (Ruthex/CNC Kitchen M2-M5 with anti-sink lead-in chamfer), `screw_hole` (DIN 912 counterbore & DIN 7991 countersink), `hex_nut_pocket` (captive hex nut trap).
+  - **Cutouts & Ports:** `keystone_jack` (standard snap-in RJ45), `c14_inlet` (chassis IEC power socket with screw mounts), `usb_port` (USB-A & USB-C cutouts), `fan_mount` (40mm, 60mm, 80mm, 92mm, 120mm with fan grille & mounting holes), `rocker_switch` (snap-in AC power switch).
+  - **Cable Management:** `zip_tie_mount` (saddle & flush tie bridges), `velcro_slot` (cable cinch slots), `cable_pass_through` (beveled grommet passthrough).
+  - **Structural Reinforcement:** `stiffening_ribs` (flanged strengthening ribs), `gusset` (corner reinforcement web).
 - **Parameters:**
-  - `object_a` *(string, required)*: First object.
-  - `object_b` *(string, required)*: Second object.
-- **Returns:**
-  ```json
-  {
-    "status": "ok",
-    "collision_detected": false,
-    "clearance_mm": 2.45,
-    "closest_points": {
-      "point_on_a": [112.5, 10.0, 1.5],
-      "point_on_b": [112.5, 12.45, 1.5]
-    }
-  }
-  ```
+  - `feature_type` *(string, required)*
+  - `target_object` *(string, optional)*: Part or Body to modify.
+  - `operation` *(string)*: `cut` (subtractive/pocket), `fuse` (additive/union), or `new_object` (standalone).
+  - `parameters` *(object)*: Feature-specific dimensions (`bounds_w`, `cell_size`, `thread`, `boss_height`, etc.).
+  - `placement` *(object)*: `{"position": [x,y,z], "rotation": [yaw,pitch,roll]}`.
 
-### 4. `export_geometry`
-Exports objects to production formats.
+### 4. `cut_component_cavity`
+Carves an exact negative mounting pocket for a hardware dummy with configurable 3D printing clearance:
 - **Parameters:**
-  - `object_names` *(array of strings, optional)*: Objects to export (exports entire active document if omitted).
-  - `filepath` *(string, required)*: Output path (`.stl`, `.step`, `.stp`, `.3mf`, `.dxf`).
-  - `format` *(string)*: `STL`, `STEP`, `3MF`, `DXF` (auto-detected from filepath extension if omitted).
-  - `stl_deflection` *(float)*: Linear surface deflection in mm (default `0.05` for fine 3D printing curves).
-  - `stl_angular_deflection` *(float)*: Angular deflection in radians (default `0.5`).
+  - `target_object` *(string, required)*: Solid to carve into.
+  - `dummy_type` *(string, required)*: `c14_socket`, `keystone_rj45`, `raspberry_pi_5`, `fan_40mm`, `fan_80mm`, `mean_well_rs25`, `mean_well_lrs35`, `usb_c_plug`.
+  - `clearance` *(float, default: `0.3`)*: Tolerance in mm added to all axes.
+  - `placement` *(object)*: `{"position": [x,y,z], "rotation": [yaw,pitch,roll]}`.
 
-### 5. `set_display_state`
+### 5. `audit_wall_thickness`
+DfAM (Design for Additive Manufacturing) thickness audit. Detects antiparallel surfaces separated by less than the minimum printable threshold:
+- **Parameters:**
+  - `object_name` *(string, required)*
+  - `min_thickness` *(float, default: `1.2` mm for 3 standard perimeters)*
+- **Returns:** Minimum wall thickness found, list of thin wall regions with coordinates, and printability recommendations.
+
+### 6. `split_part_for_bed`
+Splits oversized models along X, Y, or Z to fit 3D printer build beds (e.g. 256×256 mm) with interlocking alignment dowel pin sockets:
+- **Parameters:**
+  - `object_name` *(string, required)*
+  - `max_bed_size` *(float, default: `256.0`)*
+  - `split_axis` *(string)*: `X`, `Y`, or `Z` (default: `X`).
+  - `joint_type` *(string)*: `dowel` (pin holes) or `flat`.
+  - `clearance` *(float, default: `0.2` mm)*.
+
+### 7. `get_selection`
+Human-in-the-Loop selection inspector. Reads user-clicked faces, edges, or vertices directly from the active FreeCAD 3D view:
+- **Returns:** Surface types, normal vectors, midpoint/tangent coordinates, area, and pre-computed `tnp_query` selectors for Topological Naming Problem protection.
+
+### 8. `generate_drawing`
+Automated TechDraw 2D vector engineering drawing generator:
+- **Parameters:**
+  - `object_name` *(string, required)*
+  - `format` *(string)*: `pdf` (vector PDF) or `svg`.
+  - `output_path` *(string, optional)*
+  - `scale` *(float, optional)*: View scale factor (auto-computed to fit A4 page if omitted).
+  - `views` *(array of strings, default: `["front", "top", "isometric"]`)*.
+
+### 9. `insert_reference_dummy`
+Inserts dimensionally accurate, semi-transparent reference models for packaging fit testing:
+- **Components:** `raspberry_pi_5`, `fan_40mm`, `fan_80mm`, `c14_socket`, `keystone_rj45`, `din_rail_35mm`, `mean_well_rs25`, `mean_well_lrs35`, `iphone_15_pro`, `iphone_15_pro_max`, `generic_phone`, `usb_c_plug`, `mikrotik_crs305`, `screw_m3`, `screw_m6`.
+
+### 10. `inspect_geometry`
+Performs comprehensive topological and physical property checks on any CAD object: BoundingBox, volume, surface area, center of mass, and watertight/manifold verification.
+
+### 11. `check_clearance`
+Detects collisions and measures minimal clearance distance between two solids using OpenCASCADE extrema (`distToShape`).
+
+### 12. `export_geometry`
+Exports solids to production formats (**STL** with custom chordal/angular deflection, **STEP** AP214 with native PartDesign body support, **3MF**, or **DXF**).
+
+### 13. `set_display_state`
 Controls rendering styling across the scene: body visibility, Tip display, sketch hiding, and display modes (`Flat Lines`, `Shaded`, `Wireframe`).
 
-### 6. `get_section_view`
-Captures non-destructive cross-section cut views using native Coin3D clipping planes:
+### 14. `get_section_view`
+Captures non-destructive cross-section cut views using native Coin3D clipping planes (`XY`, `XZ`, `YZ`, or custom normal vector).
+
+### 15. `export_viewer_html`
+Exports the 3D model into an interactive WebGL 2.0 CAD viewer. Zero external 3D engine dependencies (completely immune to strict CSP restrictions).
 - **Parameters:**
-  - `plane` *(string or [x,y,z])*: `XY`, `XZ`, `YZ`, or custom normal vector.
-  - `offset` *(float)*: Distance along normal in mm.
-  - `flip_direction` *(bool)*: Clip the opposite side.
-  - `view`, `coordinate_system`, `direction`, `zoom_margin`, `display_mode`.
+  - `object_name` *(string, required)*: Solid body or `Part::Compound` assembly.
+  - `mode` *(string)*: `"chat"` (compact inline card `< 450px` for chat embeds via `<agent-embed>`, theme-adaptive) or `"standalone"` (full-window CAD viewer with HUD). Default: `"standalone"`.
+  - `output_path` *(string, optional)*: Destination `.html` path.
+  - `title` *(string, optional)*: Viewer header title.
+  - `linear_deflection` / `angular_deflection` *(float)*: OCCT tessellation mesh resolution.
+- **Features:** Orbital rotation, smooth panning/zooming, CAD wireframe edge rendering, multi-part exploded assembly compounds, and automatic dark/light theme switching.
 
-### 7. `export_viewer_html`
-Exports the 3D model into a standalone, zero-dependency WebGL HTML viewer with Three.js OrbitControls, dimensions overlay, and HUD.
+### 16. `analyze_stability`
+Calculates 2D base contact polygon convex hull, combined center of mass (with optional device payload), and tipping angles in all 4 cardinal directions.
 
-### 8. `analyze_stability`
-Calculates 2D base contact polygon convex hull, combined center of mass (with optional smartphone/device payload), and tipping angles in all 4 cardinal directions.
-
-### 9. `check_overhangs`
+### 17. `check_overhangs`
 3D printability analysis: computes downward-facing surface areas, overhang percentage below critical angle (e.g. 45°), Z-bounds, and support necessity.
 
-### 10. `inspect_fasteners`
+### 18. `inspect_fasteners`
 Detects cylindrical features, classifies internal holes vs external mounting bosses, matches diameters to standard ISO metric fasteners (M2-M8, clearance, tap, heat-set brass inserts), and reports depths.
 
-### 11. `diagnose_document`
+### 19. `diagnose_document`
 Performs deep health audit: identifies recompute errors, inspects Sketcher degrees of freedom (`DoF`), conflicting or redundant constraints, broken body Tips, and OpenCASCADE BRepCheck topology defects.
 
-### 12. `insert_reference_dummy`
-Inserts dimensionally accurate, semi-transparent reference models (`iphone_15_pro`, `iphone_15_pro_max`, `generic_phone`, `usb_c_plug`, `mean_well_rs25`, `mikrotik_crs305`, `screw_m3`, `screw_m6`) for fit testing.
-
-### 13. `get_document_tree`
+### 20. `get_document_tree`
 Returns the active document structure with object hierarchy, labels, and visibility states.
 
-### 14. `manage_document`
+### 21. `manage_document`
 Lifecycle management: `list`, `new`, `open`, `save`, `close`, `recompute`.
 
-### 15. `undo_redo`
+### 22. `undo_redo`
 Undo or redo operations in FreeCAD.
 
-### 16. `execute_python` & `cad` Helpers
+### 23. `execute_python` & `cad` Helpers
 Runs Python scripts directly inside FreeCAD. Pre-binds `FreeCAD`, `App`, `FreeCADGui`, `Gui`, `Part`, `Sketcher`, and TNP-safe `cad` utilities (`find_face`, `find_edges`, `add_rigid_rect`, `add_slot`). Wrapped in automatic transactions.
+
+### 24. `execute_python_file`
+Executes local `.py` script files in FreeCAD.
+
+### 25. `get_output_page`
+Retrieves paged output streams for long console logs.
 
 ---
 

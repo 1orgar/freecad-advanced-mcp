@@ -11,6 +11,7 @@ import FreeCAD
 from freecad.mcp_bridge import config, mcp_protocol, paging
 from freecad.mcp_bridge import ops_view, ops_inspect, ops_export, ops_doc
 from freecad.mcp_bridge import ops_dfam, ops_diagnostics, ops_viewer_html, ops_dummies
+from freecad.mcp_bridge import ops_smart_features, ops_techdraw, ops_selection
 from freecad.mcp_bridge.constants import ENDPOINT_PATH, LOG_PREFIX
 from freecad.mcp_bridge.executor import Executor
 
@@ -107,6 +108,8 @@ class McpRequestHandler(BaseHTTPRequestHandler):
             self._send_sse(mcp_protocol.tool_call_response(req_id, result))
         elif name == "get_view":
             self._dispatch_call(req_id, ops_view.get_view, args)
+        elif name == "get_multi_view":
+            self._dispatch_call(req_id, ops_view.get_multi_view, args)
         elif name == "get_section_view":
             self._dispatch_call(req_id, ops_view.get_section_view, args)
         elif name == "export_viewer_html":
@@ -119,6 +122,10 @@ class McpRequestHandler(BaseHTTPRequestHandler):
             self._dispatch_call(req_id, ops_dfam.analyze_stability, args)
         elif name == "check_overhangs":
             self._dispatch_call(req_id, ops_dfam.check_overhangs, args)
+        elif name == "audit_wall_thickness":
+            self._dispatch_call(req_id, ops_dfam.audit_wall_thickness, args)
+        elif name == "split_part_for_bed":
+            self._dispatch_call(req_id, ops_dfam.split_part_for_bed, args)
         elif name == "inspect_fasteners":
             self._dispatch_call(req_id, ops_dfam.inspect_fasteners, args)
         elif name == "get_document_tree":
@@ -129,6 +136,14 @@ class McpRequestHandler(BaseHTTPRequestHandler):
             self._dispatch_call(req_id, ops_inspect.check_clearance, args)
         elif name == "insert_reference_dummy":
             self._dispatch_call(req_id, ops_dummies.insert_reference_dummy, args)
+        elif name == "cut_component_cavity":
+            self._dispatch_call(req_id, ops_dummies.cut_component_cavity, args)
+        elif name == "apply_smart_feature":
+            self._dispatch_call(req_id, ops_smart_features.apply_smart_feature, args)
+        elif name == "generate_drawing":
+            self._dispatch_call(req_id, ops_techdraw.generate_drawing, args)
+        elif name == "get_selection":
+            self._dispatch_call(req_id, ops_selection.get_selection, args)
         elif name == "export_geometry":
             self._dispatch_call(req_id, ops_export.export_geometry, args)
         elif name == "manage_document":
