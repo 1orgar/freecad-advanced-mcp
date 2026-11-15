@@ -72,7 +72,32 @@ def generate_drawing(
         else:
             computed_scale = 1.0
 
-    view_list = views or ["front", "top", "isometric"]
+    # Auto-populate SVG template title block editable texts if available
+    try:
+        import datetime
+        et = dict(getattr(template, "EditableTexts", {}) or {})
+        if et:
+            dims_str = f"{bb.XLength:.1f} x {bb.YLength:.1f} x {bb.ZLength:.1f} mm"
+            vol_cm3 = shape.Volume / 1000.0
+            scale_str = f"{computed_scale:g}:1" if computed_scale >= 1.0 else f"1:{int(round(1.0 / computed_scale))}"
+            today_str = datetime.date.today().isoformat()
+            for k in list(et.keys()):
+                kl = k.lower()
+                if "title" in kl or "name" in kl or "description" in kl:
+                    et[k] = f"{obj.Label} ({dims_str})"
+                elif "scale" in kl:
+                    et[k] = scale_str
+                elif "date" in kl:
+                    et[k] = today_str
+                elif "weight" in kl or "mass" in kl:
+                    et[k] = f"{vol_cm3 * 1.25:.1f} g (PETG)"
+                elif "author" in kl or "drawn" in kl:
+                    et[k] = "FreeCAD Advanced MCP"
+            template.EditableTexts = et
+    except Exception:
+        pass
+
+    view_list = [v.lower().strip() for v in (views or ["front", "top", "isometric"])]
     created_views = []
 
     # Front View (Elevation)
@@ -80,8 +105,8 @@ def generate_drawing(
         vf = doc.addObject("TechDraw::DrawViewPart", f"View_Front_{obj.Name}")
         vf.Source = [obj]
         vf.Direction = FreeCAD.Vector(0, -1, 0)
-        vf.X = 90.0
-        vf.Y = 135.0
+        vf.X = 85.0
+        vf.Y = 140.0
         vf.Scale = computed_scale
         page.addView(vf)
         created_views.append("front")
@@ -91,18 +116,29 @@ def generate_drawing(
         vt = doc.addObject("TechDraw::DrawViewPart", f"View_Top_{obj.Name}")
         vt.Source = [obj]
         vt.Direction = FreeCAD.Vector(0, 0, 1)
-        vt.X = 90.0
+        vt.X = 85.0
         vt.Y = 65.0
         vt.Scale = computed_scale
         page.addView(vt)
         created_views.append("top")
+
+    # Right Side View
+    if "right" in view_list or "side" in view_list:
+        vr = doc.addObject("TechDraw::DrawViewPart", f"View_Right_{obj.Name}")
+        vr.Source = [obj]
+        vr.Direction = FreeCAD.Vector(1, 0, 0)
+        vr.X = 165.0
+        vr.Y = 140.0
+        vr.Scale = computed_scale
+        page.addView(vr)
+        created_views.append("right")
 
     # Isometric View
     if "isometric" in view_list or "iso" in view_list:
         vi = doc.addObject("TechDraw::DrawViewPart", f"View_Iso_{obj.Name}")
         vi.Source = [obj]
         vi.Direction = FreeCAD.Vector(1, -1, 1)
-        vi.X = 215.0
+        vi.X = 220.0
         vi.Y = 135.0
         vi.Scale = computed_scale * 0.85
         page.addView(vi)

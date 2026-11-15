@@ -10,7 +10,7 @@ def get_document_tree(document_name=None):
     if not doc:
         return {"error": "No open FreeCAD document available."}
 
-    gui_doc = FreeCADGui.getDocument(doc.Name)
+    gui_doc = FreeCADGui.getDocument(doc.Name) if hasattr(FreeCADGui, "getDocument") else None
 
     doc_info = {
         "name": doc.Name,
@@ -89,13 +89,30 @@ def inspect_geometry(object_name, document_name=None):
     edges_cnt = len(shape.Edges)
     verts_cnt = len(shape.Vertexes)
 
-    # Edge analysis
+    # Edge analysis & surface type breakdown
     min_edge_len = None
     if edges_cnt > 0:
         edge_lens = [e.Length for e in shape.Edges if e.Length > 1e-6]
         if edge_lens:
             min_edge_len = round(min(edge_lens), 4)
 
+    surf_counts = {"planar": 0, "cylindrical": 0, "conical": 0, "toroidal": 0, "bspline": 0, "other": 0}
+    for f in shape.Faces:
+        st = getattr(f.Surface, "TypeId", "")
+        if "Plane" in st:
+            surf_counts["planar"] += 1
+        elif "Cylinder" in st:
+            surf_counts["cylindrical"] += 1
+        elif "Cone" in st:
+            surf_counts["conical"] += 1
+        elif "Toroid" in st:
+            surf_counts["toroidal"] += 1
+        elif "BSpline" in st or "Bezier" in st:
+            surf_counts["bspline"] += 1
+        else:
+            surf_counts["other"] += 1
+
+    vol_cm3 = shape.Volume / 1000.0
     audit = {
         "manifold_watertight": bool(is_closed and is_valid and solids_cnt > 0),
         "is_valid_opencascade": bool(is_valid),
@@ -118,23 +135,37 @@ def inspect_geometry(object_name, document_name=None):
             "center": [round(bb.Center.x, 4), round(bb.Center.y, 4), round(bb.Center.z, 4)],
         },
         "volume_mm3": round(shape.Volume, 4),
+        "volume_cm3": round(vol_cm3, 3),
+        "estimated_mass_g": {
+            "PLA_PETG": round(vol_cm3 * 1.25, 1),
+            "ABS_ASA": round(vol_cm3 * 1.05, 1),
+            "Aluminum_6061": round(vol_cm3 * 2.70, 1),
+        },
         "area_mm2": round(shape.Area, 4),
         "center_of_mass": [round(com.x, 4), round(com.y, 4), round(com.z, 4)],
+        "surface_types": surf_counts,
         "topology": {
             "solids": solids_cnt,
             "faces": faces_cnt,
             "edges": edges_cnt,
             "vertices": verts_cnt,
+            "surface_types": surf_counts,
         },
         "manufacturing_audit": audit,
     }
 
 
-def check_clearance(object1, object2="all", document_name=None, tolerance=0.1):
+def check_clearance(object1=None, object2="all", document_name=None, tolerance=0.1, object_a=None, object_b=None):
     """Check spatial interference (collision volume) and clearance distance.
 
+    Supports both (object1, object2) and (object_a, object_b) parameter names.
     If object2 is "all" or None, checks object1 against all other solid objects in the document.
     """
+    object1 = object1 or object_a
+    if object_b is not None and object2 == "all":
+        object2 = object_b
+    if not object1:
+        return {"error": "Parameter 'object1' (or 'object_a') is required."}
     doc = _resolve_doc(document_name)
     if not doc:
         return {"error": "No open FreeCAD document available."}

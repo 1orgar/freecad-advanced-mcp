@@ -483,6 +483,124 @@ def make_gusset_shape(width=15.0, height=15.0, thickness=3.0, chamfer_corner=Tru
 
 
 # ==============================================================================
+# 6. Enclosure Joints, Dovetails & Mounting Ears
+# ==============================================================================
+
+def make_snap_fit_shape(beam_length=12.0, beam_width=6.0, beam_thickness=1.8, overhang=1.2, ramp_angle_deg=30.0):
+    """Generate a cantilever snap-fit hook (beam along +Z, hook overhang along +Y)."""
+    bl = float(beam_length)
+    bw = float(beam_width)
+    bt = float(beam_thickness)
+    oh = float(overhang)
+    ang = math.radians(max(15.0, min(60.0, float(ramp_angle_deg))))
+    ramp_len = oh / math.tan(ang)
+    ret_len = max(1.2, oh * 0.8)
+
+    # Profile in YZ plane extruded along X (-bw/2 to +bw/2), with -0.5mm root embed for clean boolean union
+    z_root = -0.5
+    z_hook_start = max(2.0, bl - ramp_len - ret_len)
+    z_peak = bl - ramp_len
+
+    pts = [
+        FreeCAD.Vector(-bw / 2.0, 0.0, z_root),
+        FreeCAD.Vector(-bw / 2.0, bt, z_root),
+        FreeCAD.Vector(-bw / 2.0, bt, z_hook_start),
+        FreeCAD.Vector(-bw / 2.0, bt + oh, z_peak),
+        FreeCAD.Vector(-bw / 2.0, bt * 0.6, bl),
+        FreeCAD.Vector(-bw / 2.0, 0.0, bl),
+        FreeCAD.Vector(-bw / 2.0, 0.0, z_root),
+    ]
+    wire = Part.makePolygon(pts)
+    face = Part.Face(wire)
+    return face.extrude(FreeCAD.Vector(bw, 0, 0))
+
+
+def make_enclosure_lip_shape(bounds_w=100.0, bounds_h=60.0, wall_thickness=3.0, lip_height=2.5, clearance=0.2, corner_radius=2.0, part="tongue"):
+    """Generate a mating lip-and-groove perimeter rim for two-part enclosures.
+
+    - part="tongue": inner perimeter rim (fuse to bottom half)
+    - part="groove": mating recess cutter with clearance (cut from top half)
+    """
+    w = float(bounds_w)
+    h = float(bounds_h)
+    wt = float(wall_thickness)
+    lh = float(lip_height)
+    cl = float(clearance)
+    r = max(0.5, float(corner_radius))
+
+    is_groove = str(part).lower().strip() in ("groove", "female", "cut")
+    lip_w = (wt * 0.5) + (cl if is_groove else 0.0)
+    overshoot = 0.5
+    z_h = lh + overshoot + (cl if is_groove else 0.0)
+
+    outer_w = w - wt + (2.0 * cl if is_groove else 0.0)
+    outer_h = h - wt + (2.0 * cl if is_groove else 0.0)
+    inner_w = outer_w - 2.0 * lip_w
+    inner_h = outer_h - 2.0 * lip_w
+
+    outer_box = cad_helpers.rounded_box(outer_w, outer_h, z_h, r_xy=r, center_xy=True, center_z=False)
+    inner_cut = cad_helpers.rounded_box(inner_w, inner_h, z_h + 2.0, r_xy=max(0.2, r - lip_w), center_xy=True, center_z=False)
+    inner_cut.translate(FreeCAD.Vector(0, 0, -1.0))
+    rim = outer_box.cut(inner_cut)
+    # Shift by -overshoot so groove cuts cleanly through top face or tongue embeds into rim
+    rim.translate(FreeCAD.Vector(0, 0, -lh if is_groove else -overshoot))
+    return rim
+
+
+def make_dovetail_joint_shape(length=40.0, base_width=14.0, height=5.0, angle_deg=45.0, clearance=0.2, part="male"):
+    """Generate a sliding dovetail rail or matching female groove (print-friendly 45/60 deg)."""
+    l = float(length)
+    bw = float(base_width)
+    h = float(height)
+    is_female = str(part).lower().strip() in ("female", "groove", "cut")
+    cl = float(clearance) if is_female else 0.0
+    ang_rad = math.radians(max(30.0, min(75.0, float(angle_deg))))
+
+    flare = h / math.tan(ang_rad)
+    if bw > 2.0 * flare + 2.0:
+        w_bot = (bw - 2.0 * flare) + 2.0 * cl
+        w_top = bw + 2.0 * cl
+    else:
+        w_bot = max(2.0, bw) + 2.0 * cl
+        w_top = w_bot + 2.0 * flare
+
+    z_root = -0.5
+    h_tot = h + (cl if cl > 0 else 0.0)
+
+    pts = [
+        FreeCAD.Vector(-w_bot / 2.0, -l / 2.0, z_root),
+        FreeCAD.Vector(w_bot / 2.0, -l / 2.0, z_root),
+        FreeCAD.Vector(w_top / 2.0, -l / 2.0, h_tot),
+        FreeCAD.Vector(-w_top / 2.0, -l / 2.0, h_tot),
+        FreeCAD.Vector(-w_bot / 2.0, -l / 2.0, z_root),
+    ]
+    face = Part.Face(Part.makePolygon(pts))
+    return face.extrude(FreeCAD.Vector(0, l, 0))
+
+
+def make_mounting_ear_shape(width=18.0, height=44.0, thickness=3.0, slot_width=6.0, slot_length=13.0, slot_count=3):
+    """Generate a rack/wall mounting ear flange with stadium slots."""
+    w = float(width)
+    h = float(height)
+    t = float(thickness)
+    plate = cad_helpers.rounded_box(w, h, t, r_xy=2.0, center_xy=True, center_z=True)
+
+    sw = float(slot_width)
+    sl = min(float(slot_length), w - 3.0)
+    cnt = max(1, int(slot_count))
+    pitch = (h * 0.72) / max(1, cnt - 1) if cnt > 1 else 0.0
+
+    cuts = []
+    for i in range(cnt):
+        cy = 0.0 if cnt == 1 else (-pitch * (cnt - 1) / 2.0 + i * pitch)
+        slot = make_cable_pass_through_shape(width=sl, height=sw, depth=t + 6.0)
+        slot.translate(FreeCAD.Vector(0, cy, 0))
+        cuts.append(slot)
+
+    return cad_helpers.boolean_chain(plate, cuts=cuts, refine=True)
+
+
+# ==============================================================================
 # Unified Smart Feature Applicator
 # ==============================================================================
 
@@ -491,8 +609,13 @@ def apply_smart_feature(
     target_object=None,
     parameters=None,
     placement=None,
-    operation="cut",
+    operation=None,
     document_name=None,
+    object_name=None,
+    params=None,
+    position=None,
+    rotation=None,
+    normal=None,
 ):
     """Apply a semantic smart feature to a target object or create a standalone solid.
 
@@ -503,29 +626,39 @@ def apply_smart_feature(
         - "keystone_jack", "c14_inlet", "usb_port", "fan_mount", "rocker_switch"
         - "zip_tie_mount", "velcro_slot", "cable_pass_through"
         - "stiffening_ribs", "gusset"
-    - target_object: Optional target FreeCAD object (Body or Feature) to modify.
-    - parameters: Dict of feature-specific dimensions.
+        - "snap_fit", "enclosure_lip", "dovetail_joint", "mounting_ear"
+    - target_object (or object_name): Optional target FreeCAD object (Body or Feature) to modify.
+    - parameters (or params): Dict of feature-specific dimensions.
     - placement: Optional dict with "position": [x,y,z] and "rotation": [yaw,pitch,roll].
-    - operation: "cut" (subtract), "fuse" (union), or "new_object" (standalone Part).
+    - operation: "cut" (subtract), "fuse" (union), or "new_object". Auto-inferred if omitted.
     - document_name: Optional document name.
     """
-    params = parameters or {}
+    if target_object is None and object_name is not None:
+        target_object = object_name
+    params = parameters or params or {}
+    if placement is None and (position is not None or rotation is not None):
+        placement = {}
+        if position is not None:
+            placement["position"] = position
+        if rotation is not None:
+            placement["rotation"] = rotation
     ft = feature_type.lower().strip()
     feat_shape = None
+    default_op = "cut"
 
     # Dispatch to feature generator
     if ft == "honeycomb":
         feat_shape = make_honeycomb_shape(
-            bounds_w=params.get("bounds_w", 100.0),
-            bounds_h=params.get("bounds_h", 40.0),
+            bounds_w=params.get("bounds_w", params.get("width", 100.0)),
+            bounds_h=params.get("bounds_h", params.get("height", 40.0)),
             cell_size=params.get("cell_size", 10.0),
             wall_thickness=params.get("wall_thickness", 2.2),
             depth=params.get("depth", 15.0),
         )
     elif ft in ("slotted_grill", "grill", "slots"):
         feat_shape = make_slotted_grill_shape(
-            bounds_w=params.get("bounds_w", 100.0),
-            bounds_h=params.get("bounds_h", 40.0),
+            bounds_w=params.get("bounds_w", params.get("width", 100.0)),
+            bounds_h=params.get("bounds_h", params.get("height", 40.0)),
             slot_width=params.get("slot_width", 3.5),
             slot_pitch=params.get("slot_pitch", 7.0),
             depth=params.get("depth", 15.0),
@@ -533,14 +666,15 @@ def apply_smart_feature(
         )
     elif ft in ("circular_perforation", "holes_grid"):
         feat_shape = make_circular_perforation_shape(
-            bounds_w=params.get("bounds_w", 80.0),
-            bounds_h=params.get("bounds_h", 40.0),
+            bounds_w=params.get("bounds_w", params.get("width", 80.0)),
+            bounds_h=params.get("bounds_h", params.get("height", 40.0)),
             hole_dia=params.get("hole_dia", 4.0),
             pitch=params.get("pitch", 7.0),
             pattern=params.get("pattern", "staggered"),
             depth=params.get("depth", 15.0),
         )
     elif ft in ("heatset_boss", "boss"):
+        default_op = "fuse"
         feat_shape = make_heatset_boss_shape(
             thread=params.get("thread", "M3"),
             boss_height=params.get("boss_height", 8.0),
@@ -576,8 +710,10 @@ def apply_smart_feature(
     elif ft in ("rocker_switch", "switch"):
         feat_shape = make_rocker_switch_cutout_shape(depth=params.get("depth", 15.0))
     elif ft in ("zip_tie_mount", "zip_tie"):
+        mount_t = params.get("mount_type", "saddle")
+        default_op = "cut" if mount_t == "tunnel" else "fuse"
         feat_shape = make_zip_tie_mount_shape(
-            mount_type=params.get("mount_type", "saddle"),
+            mount_type=mount_t,
             tie_width=params.get("tie_width", 3.6),
             height=params.get("height", 5.0),
         )
@@ -593,6 +729,7 @@ def apply_smart_feature(
             depth=params.get("depth", 15.0),
         )
     elif ft in ("stiffening_ribs", "ribs"):
+        default_op = "fuse"
         feat_shape = make_stiffening_ribs_shape(
             length=params.get("length", 100.0),
             depth=params.get("depth", 5.0),
@@ -602,11 +739,56 @@ def apply_smart_feature(
             direction=params.get("direction", "X"),
         )
     elif ft == "gusset":
+        default_op = "fuse"
         feat_shape = make_gusset_shape(
             width=params.get("width", 15.0),
             height=params.get("height", 15.0),
             thickness=params.get("thickness", 3.0),
             chamfer_corner=params.get("chamfer_corner", True),
+        )
+    elif ft in ("snap_fit", "snap"):
+        default_op = "fuse"
+        feat_shape = make_snap_fit_shape(
+            beam_length=params.get("beam_length", params.get("length", 12.0)),
+            beam_width=params.get("beam_width", params.get("width", 6.0)),
+            beam_thickness=params.get("beam_thickness", params.get("thickness", 1.8)),
+            overhang=params.get("overhang", 1.2),
+            ramp_angle_deg=params.get("ramp_angle_deg", 30.0),
+        )
+    elif ft in ("enclosure_lip", "lip_groove"):
+        part_mode = "groove" if params.get("is_groove") else params.get("part", "tongue")
+        default_op = "cut" if str(part_mode).lower().strip() in ("groove", "female", "cut") else "fuse"
+        feat_shape = make_enclosure_lip_shape(
+            bounds_w=params.get("bounds_w", params.get("width", 100.0)),
+            bounds_h=params.get("bounds_h", params.get("depth", params.get("height", 60.0))),
+            wall_thickness=params.get("wall_thickness", 3.0),
+            lip_height=params.get("lip_height", 2.5),
+            clearance=params.get("clearance", 0.2),
+            corner_radius=params.get("corner_radius", 2.0),
+            part=part_mode,
+        )
+    elif ft in ("dovetail_joint", "dovetail"):
+        part_mode = "female" if params.get("is_male") is False else params.get("part", "male")
+        default_op = "cut" if str(part_mode).lower().strip() in ("female", "groove", "cut") else "fuse"
+        dt_h = params.get("depth", params.get("height", 5.0)) if "depth" in params else params.get("height", 5.0)
+        dt_l = params.get("length", params.get("height", 40.0) if "depth" in params else 40.0)
+        feat_shape = make_dovetail_joint_shape(
+            length=dt_l,
+            base_width=params.get("base_width", params.get("neck_width", 14.0)),
+            height=dt_h,
+            angle_deg=params.get("angle_deg", 45.0),
+            clearance=params.get("clearance", 0.2),
+            part=part_mode,
+        )
+    elif ft in ("mounting_ear", "ear"):
+        default_op = "fuse"
+        feat_shape = make_mounting_ear_shape(
+            width=params.get("width", params.get("protrusion", 18.0)),
+            height=params.get("height", 44.0),
+            thickness=params.get("thickness", 3.0),
+            slot_width=params.get("slot_width", params.get("hole_diameter", 6.0)),
+            slot_length=params.get("slot_length", 13.0),
+            slot_count=params.get("slot_count", 3),
         )
     else:
         return {"error": f"Unknown smart feature type '{feature_type}'."}
@@ -615,14 +797,26 @@ def apply_smart_feature(
         return {"error": f"Failed to generate shape for feature '{feature_type}'."}
 
     # Apply placement transform
-    if placement:
-        pos = placement.get("position", [0, 0, 0])
-        rot = placement.get("rotation", [0, 0, 0])
+    if placement or normal is not None:
+        pl_dict = placement or {}
+        pos = pl_dict.get("position", [0, 0, 0])
+        rot = pl_dict.get("rotation")
+        norm = normal if normal is not None else pl_dict.get("normal")
         pos_v = FreeCAD.Vector(*pos)
-        if len(rot) == 3:
-            rot_q = FreeCAD.Rotation(rot[0], rot[1], rot[2])
-        elif len(rot) == 4:
-            rot_q = FreeCAD.Rotation(FreeCAD.Vector(rot[0], rot[1], rot[2]), rot[3])
+        if rot is not None:
+            if len(rot) == 3:
+                rot_q = FreeCAD.Rotation(rot[0], rot[1], rot[2])
+            elif len(rot) == 4:
+                rot_q = FreeCAD.Rotation(FreeCAD.Vector(rot[0], rot[1], rot[2]), rot[3])
+            else:
+                rot_q = FreeCAD.Rotation()
+        elif norm is not None and ft not in ("mounting_ear", "ear", "snap_fit", "snap"):
+            n_vec = FreeCAD.Vector(*norm)
+            if n_vec.Length > 1e-6:
+                n_vec.normalize()
+                rot_q = FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), n_vec)
+            else:
+                rot_q = FreeCAD.Rotation()
         else:
             rot_q = FreeCAD.Rotation()
         feat_shape.Placement = FreeCAD.Placement(pos_v, rot_q)
@@ -632,7 +826,7 @@ def apply_smart_feature(
     if not doc:
         doc = FreeCAD.newDocument("SmartFeatureDoc")
 
-    op = operation.lower().strip()
+    op = (operation or default_op).lower().strip()
 
     if target_object:
         target = doc.getObject(target_object)
@@ -650,10 +844,19 @@ def apply_smart_feature(
         else:
             new_shape = feat_shape
 
-        # If target is PartDesign::Body, add feature or update tip
+        # If target is PartDesign::Body, create modified Part::Feature and hide old Body to prevent overlap
         if target.isDerivedFrom("PartDesign::Body"):
             feat = doc.addObject("Part::Feature", f"{target.Label}_{ft}")
             feat.Shape = new_shape
+            try:
+                t_vo = getattr(target, "ViewObject", None)
+                f_vo = getattr(feat, "ViewObject", None)
+                if t_vo and f_vo:
+                    f_vo.ShapeColor = t_vo.ShapeColor
+                    f_vo.Transparency = t_vo.Transparency
+                    t_vo.Visibility = False
+            except Exception:
+                pass
             doc.recompute()
             return {
                 "status": "ok",
@@ -662,6 +865,7 @@ def apply_smart_feature(
                 "result_object": feat.Name,
                 "is_closed": new_shape.isClosed(),
                 "is_valid": new_shape.isValid(),
+                "solids": len(new_shape.Solids),
                 "volume_mm3": round(new_shape.Volume, 2),
             }
         else:
@@ -674,6 +878,7 @@ def apply_smart_feature(
                 "result_object": target.Name,
                 "is_closed": new_shape.isClosed(),
                 "is_valid": new_shape.isValid(),
+                "solids": len(new_shape.Solids),
                 "volume_mm3": round(new_shape.Volume, 2),
             }
 
@@ -689,5 +894,6 @@ def apply_smart_feature(
         "result_object": obj.Name,
         "is_closed": feat_shape.isClosed(),
         "is_valid": feat_shape.isValid(),
+        "solids": len(feat_shape.Solids),
         "volume_mm3": round(feat_shape.Volume, 2),
     }

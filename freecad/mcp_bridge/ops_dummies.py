@@ -16,11 +16,15 @@ def insert_reference_dummy(
     document_name=None,
     label=None,
     transparency=50,
+    component_type=None,
+    position=None,
+    rotation=None,
+    clearance=None,
 ):
     """Insert a reference dummy component into the FreeCAD document.
 
     Parameters:
-    - dummy_type: Component type:
+    - dummy_type (or component_type): Component type:
         - "iphone_15_pro" (146.6 x 70.6 x 8.25 mm)
         - "iphone_15_pro_max" (159.9 x 76.7 x 8.25 mm)
         - "generic_phone" (150.0 x 75.0 x 9.0 mm)
@@ -37,6 +41,15 @@ def insert_reference_dummy(
     doc = _resolve_doc(document_name)
     if not doc:
         return {"error": "No open FreeCAD document available."}
+
+    if component_type is not None:
+        dummy_type = component_type
+    if placement is None and (position is not None or rotation is not None):
+        placement = {}
+        if position is not None:
+            placement["position"] = position
+        if rotation is not None:
+            placement["rotation"] = rotation
 
     dtype = (dummy_type or "iphone_15_pro").lower().strip()
     shape = None
@@ -113,7 +126,7 @@ def insert_reference_dummy(
     doc.recompute()
 
     # Apply visual styles in FreeCAD GUI
-    gui_doc = FreeCADGui.getDocument(doc.Name)
+    gui_doc = FreeCADGui.getDocument(doc.Name) if hasattr(FreeCADGui, "getDocument") else None
     if gui_doc:
         vo = gui_doc.getObject(feat.Name)
         if vo:
@@ -128,6 +141,7 @@ def insert_reference_dummy(
     return {
         "status": "ok",
         "document": doc.Name,
+        "name": feat.Name,
         "object_name": feat.Name,
         "label": feat.Label,
         "dummy_type": dtype,
@@ -287,16 +301,19 @@ def _make_mean_well_lrs35():
 
 def cut_component_cavity(
     target_object,
-    dummy_type,
+    dummy_type=None,
     placement=None,
     clearance=0.3,
     document_name=None,
+    dummy_object=None,
+    component_type=None,
+    keep_dummy=True,
 ):
     """Cut an accurate mounting cavity for a hardware component directly from target object.
 
     Parameters:
     - target_object: Target object name (PartDesign::Body or Part::Feature).
-    - dummy_type: Component type (e.g. 'c14_socket', 'keystone_rj45', 'raspberry_pi_5', 'fan_40mm', 'mean_well_rs25').
+    - dummy_type (or component_type / dummy_object): Component type or existing Dummy_* object name.
     - placement: Optional dict with 'position': [x,y,z] and 'rotation': [yaw,pitch,roll].
     - clearance: Fit tolerance in mm (default 0.3 mm for 3D printing).
     - document_name: Optional document name.
@@ -313,35 +330,93 @@ def cut_component_cavity(
     if not target_shape or target_shape.isNull():
         return {"error": f"Target object '{target_object}' has no valid Shape."}
 
-    dtype = dummy_type.lower().strip()
-    if dtype in ("raspberry_pi_5", "rpi5"):
-        dummy = _make_raspberry_pi_5()
-    elif dtype in ("fan_40mm", "fan40"):
-        dummy = _make_fan(40.0, 10.0)
-    elif dtype in ("fan_80mm", "fan80"):
-        dummy = _make_fan(80.0, 25.0)
-    elif dtype in ("c14_socket", "c14"):
-        dummy = _make_c14_socket()
+    if dummy_type is None:
+        dummy_type = component_type or dummy_object or ""
+
+    existing_dummy = doc.getObject(str(dummy_type))
+    if existing_dummy is not None:
+        # Infer placement from existing dummy object if not explicitly passed
+        if placement is None and hasattr(existing_dummy, "Placement"):
+            pl = existing_dummy.Placement
+            placement = {
+                "position": [pl.Base.x, pl.Base.y, pl.Base.z],
+                "rotation": [pl.Rotation.Axis.x, pl.Rotation.Axis.y, pl.Rotation.Axis.z, math.degrees(pl.Rotation.Angle)],
+            }
+        lbl = getattr(existing_dummy, "Label", "") or existing_dummy.Name
+        raw_t = lbl.replace("[DUMMY]", "").strip() if "[DUMMY]" in lbl else existing_dummy.Name.replace("Dummy_", "")
+        # Strip trailing FreeCAD numeric suffix like 001
+        while raw_t and raw_t[-1].isdigit() and not any(raw_t.endswith(s) for s in ("_5", "15", "25", "35", "45", "305", "m3", "m6")):
+            raw_t = raw_t[:-1]
+        dtype = raw_t.lower().strip()
+        if not keep_dummy:
+            try:
+                doc.removeObject(existing_dummy.Name)
+            except Exception:
+                pass
+    else:
+        dtype = str(dummy_type).lower().strip()
+
+    cl = float(clearance)
+
+    if dtype in ("c14_socket", "c14"):
+        # Accurate C14 inlet cutout: central socket body + 2x M3 mounting screw holes at +-20mm
+        bw = 27.2 + 2.0 * cl
+        bh = 19.8 + 2.0 * cl
+        bd = 32.0
+        body_cut = Part.makeBox(bw, bh, bd, FreeCAD.Vector(-bw / 2.0, -bh / 2.0, -bd / 2.0))
+        h1 = Part.makeCylinder(1.7, bd, FreeCAD.Vector(-20.0, 0, -bd / 2.0), FreeCAD.Vector(0, 0, 1))
+        h2 = Part.makeCylinder(1.7, bd, FreeCAD.Vector(20.0, 0, -bd / 2.0), FreeCAD.Vector(0, 0, 1))
+        cutter = body_cut.fuse(h1).fuse(h2)
     elif dtype in ("keystone_rj45", "keystone"):
-        dummy = _make_keystone_rj45()
-    elif dtype in ("mean_well_rs25", "rs25"):
-        dummy = _make_mean_well_rs25()
-    elif dtype in ("mean_well_lrs35", "lrs35"):
-        dummy = _make_mean_well_lrs35()
+        # Standard snap-in Keystone cutout with top latch step
+        kw = 14.6 + 2.0 * cl
+        kh = 19.2 + 2.0 * cl
+        kd = 30.0
+        box = Part.makeBox(kw, kh, kd, FreeCAD.Vector(-kw / 2.0, -kh / 2.0, -kd / 2.0))
+        nw = 16.2 + 2.0 * cl
+        nh = 2.0 + cl
+        notch = Part.makeBox(nw, nh, kd, FreeCAD.Vector(-nw / 2.0, kh / 2.0 - nh, -kd / 2.0))
+        cutter = box.fuse(notch)
+    elif dtype in ("fan_40mm", "fan40", "fan_80mm", "fan80"):
+        is_80 = "80" in dtype
+        s = 80.0 if is_80 else 40.0
+        duct_r = (38.5 if is_80 else 19.0) + cl
+        pitch = 71.5 if is_80 else 32.0
+        hole_r = 2.2 if is_80 else 1.7
+        depth = 30.0
+        duct = Part.makeCylinder(duct_r, depth, FreeCAD.Vector(0, 0, -depth / 2.0), FreeCAD.Vector(0, 0, 1))
+        hp = pitch / 2.0
+        cutter = duct
+        for dx in (-hp, hp):
+            for dy in (-hp, hp):
+                ch = Part.makeCylinder(hole_r, depth, FreeCAD.Vector(dx, dy, -depth / 2.0), FreeCAD.Vector(0, 0, 1))
+                cutter = cutter.fuse(ch)
     elif dtype in ("usb_c_plug", "usbc"):
+        # USB-C oval port + overmold recess
         dummy = _make_usbc_plug()
+        bb = dummy.BoundBox
+        cutter = Part.makeBox(
+            bb.XLength + 2.0 * cl,
+            bb.YLength + 2.0 * cl,
+            bb.ZLength + 2.0 * cl,
+            FreeCAD.Vector(bb.XMin - cl, bb.YMin - cl, bb.ZMin - cl),
+        )
+    elif dtype in ("raspberry_pi_5", "rpi5", "mean_well_rs25", "rs25", "mean_well_lrs35", "lrs35"):
+        if dtype in ("raspberry_pi_5", "rpi5"):
+            dummy = _make_raspberry_pi_5()
+        elif dtype in ("mean_well_rs25", "rs25"):
+            dummy = _make_mean_well_rs25()
+        else:
+            dummy = _make_mean_well_lrs35()
+        bb = dummy.BoundBox
+        cutter = Part.makeBox(
+            bb.XLength + 2.0 * cl,
+            bb.YLength + 2.0 * cl,
+            bb.ZLength + 2.0 * cl,
+            FreeCAD.Vector(bb.XMin - cl, bb.YMin - cl, bb.ZMin - cl),
+        )
     else:
         return {"error": f"Unsupported dummy_type '{dummy_type}' for cavity cut."}
-
-    # Expand dummy by clearance using BoundBox expansion
-    cl = float(clearance)
-    bb = dummy.BoundBox
-    cutter = Part.makeBox(
-        bb.XLength + 2.0 * cl,
-        bb.YLength + 2.0 * cl,
-        bb.ZLength + 2.0 * cl,
-        FreeCAD.Vector(bb.XMin - cl, bb.YMin - cl, bb.ZMin - cl),
-    )
 
     # Apply spatial placement
     if placement and isinstance(placement, dict):
@@ -360,6 +435,15 @@ def cut_component_cavity(
     if target.isDerivedFrom("PartDesign::Body"):
         feat = doc.addObject("Part::Feature", f"{target.Label}_Cavity_{dtype}")
         feat.Shape = new_shape
+        try:
+            t_vo = getattr(target, "ViewObject", None)
+            f_vo = getattr(feat, "ViewObject", None)
+            if t_vo and f_vo:
+                f_vo.ShapeColor = t_vo.ShapeColor
+                f_vo.Transparency = t_vo.Transparency
+                t_vo.Visibility = False
+        except Exception:
+            pass
         doc.recompute()
         res_name = feat.Name
     else:
@@ -375,6 +459,7 @@ def cut_component_cavity(
         "result_object": res_name,
         "is_valid": new_shape.isValid(),
         "is_closed": new_shape.isClosed(),
+        "volume": round(new_shape.Volume, 2),
         "volume_mm3": round(new_shape.Volume, 2),
     }
 

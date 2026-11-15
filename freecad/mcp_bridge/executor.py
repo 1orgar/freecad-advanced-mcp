@@ -72,10 +72,36 @@ class Executor(QObject):
 
                 if isinstance(item, tuple) and len(item) > 0 and item[0] == "call":
                     _, fn, args, kwargs, res_queue = item
+                    fn_name = getattr(fn, "__name__", "mcp_tool")
+                    read_only_fns = {
+                        "get_view", "get_multi_view", "get_section_view", "export_viewer_html",
+                        "inspect_geometry", "analyze_stability", "check_overhangs",
+                        "audit_wall_thickness", "inspect_fasteners", "get_document_tree",
+                        "diagnose_document", "check_clearance", "get_selection",
+                        "export_geometry", "manage_document", "undo_redo",
+                    }
+                    active_doc = FreeCAD.ActiveDocument
+                    tx_opened = False
+                    if fn_name not in read_only_fns and active_doc:
+                        try:
+                            active_doc.openTransaction(f"mcp_{fn_name}")
+                            tx_opened = True
+                        except Exception:
+                            tx_opened = False
                     try:
                         res = fn(*args, **kwargs)
+                        if tx_opened and active_doc:
+                            if isinstance(res, dict) and res.get("error"):
+                                active_doc.abortTransaction()
+                            else:
+                                active_doc.commitTransaction()
                         res_queue.put((True, res))
                     except BaseException as exc:
+                        if tx_opened and active_doc:
+                            try:
+                                active_doc.abortTransaction()
+                            except Exception:
+                                pass
                         res_queue.put((False, exc))
                 else:
                     if isinstance(item, tuple) and len(item) > 0 and item[0] == "exec":
@@ -97,8 +123,19 @@ class Executor(QObject):
         stderr_tee = TeeWriter(output_queue, "stderr")
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = stdout_tee, stderr_tee
+        import math
         import Part
         import Sketcher
+        try:
+            import PartDesign
+        except Exception:
+            PartDesign = None
+        try:
+            import Mesh
+            import MeshPart
+        except Exception:
+            Mesh = None
+            MeshPart = None
         try:
             from freecad.mcp_bridge import cad_helpers
         except Exception:
@@ -106,12 +143,16 @@ class Executor(QObject):
 
         env = {
             "__name__": "__main__",
+            "math": math,
             "FreeCAD": FreeCAD,
             "App": FreeCAD,
             "FreeCADGui": FreeCADGui,
             "Gui": FreeCADGui,
             "Part": Part,
+            "PartDesign": PartDesign,
             "Sketcher": Sketcher,
+            "Mesh": Mesh,
+            "MeshPart": MeshPart,
             "cad": cad_helpers,
         }
         if filepath is not None:

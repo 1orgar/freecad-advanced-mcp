@@ -8,7 +8,9 @@ EXECUTE_PYTHON = {
     "name": "execute_python",
     "description": (
         "Execute Python code inside the running FreeCAD GUI process. "
-        "App/FreeCAD, Gui/FreeCADGui, and TNP-safe cad helpers (cad) are pre-bound. Output is returned. "
+        "App/FreeCAD, Gui/FreeCADGui, Part, PartDesign, Sketcher, math, and TNP-safe cad helpers "
+        "(cad.rounded_box, cad.safe_fillet, cad.safe_chamfer, cad.boolean_chain, cad.linear_pattern, "
+        "cad.polar_pattern, cad.shell_solid, cad.align_to, cad.find_face, cad.find_edges) are pre-bound. "
         "Transactions auto-rollback on error when use_transaction=True."
     ),
     "inputSchema": {
@@ -240,16 +242,16 @@ GET_SECTION_VIEW = {
 EXPORT_VIEWER_HTML = {
     "name": "export_viewer_html",
     "description": (
-        "Export the 3D model to a self-contained, zero-dependency interactive WebGL HTML viewer optimized for "
-        "inline chat rendering (<agent-embed>) or standalone browser viewing. Includes pure WebGL OrbitControls, "
-        "CAD Flat Lines wireframe edge overlay, and theme integration."
+        "Export the 3D model or multi-part assembly to a self-contained, zero-dependency interactive WebGL HTML viewer "
+        "optimized for inline chat rendering (<agent-embed>) or standalone browser viewing. Supports per-part colors, "
+        "interactive Explode slider, live Section Cut plane, CAD Flat Lines wireframe edges, and theme integration."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "object_name": {
                 "type": "string",
-                "description": "Optional target object name (defaults to active object or first Body).",
+                "description": "Target object name, or 'all' to export all visible solids with their individual colors.",
             },
             "document_name": {
                 "type": "string",
@@ -311,7 +313,7 @@ SET_DISPLAY_STATE = {
                 "description": "Display mode (Flat Lines, Shaded, Wireframe).",
             },
             "shape_color": {
-                "array": "array",
+                "type": "array",
                 "items": {"type": "number"},
                 "minItems": 3,
                 "maxItems": 3,
@@ -500,12 +502,20 @@ CHECK_CLEARANCE = {
         "properties": {
             "object1": {
                 "type": "string",
-                "description": "Name of the primary object.",
+                "description": "Name of the primary object (alias: object_a).",
             },
             "object2": {
                 "type": "string",
                 "default": "all",
-                "description": "Name of the second object, or 'all' to check against all other solids.",
+                "description": "Name of the second object (alias: object_b), or 'all' to check against all other solids.",
+            },
+            "object_a": {
+                "type": "string",
+                "description": "Alias for object1.",
+            },
+            "object_b": {
+                "type": "string",
+                "description": "Alias for object2.",
             },
             "document_name": {
                 "type": "string",
@@ -517,7 +527,6 @@ CHECK_CLEARANCE = {
                 "description": "Touch tolerance in mm (default 0.1).",
             },
         },
-        "required": ["object1"],
     },
 }
 
@@ -525,7 +534,8 @@ INSERT_REFERENCE_DUMMY = {
     "name": "insert_reference_dummy",
     "description": (
         "Insert a dimensionally accurate, semi-transparent reference dummy component "
-        "(iphone_15_pro, iphone_15_pro_max, generic_phone, usb_c_plug, mean_well_rs25, mikrotik_crs305, screw_m3, screw_m6) "
+        "(raspberry_pi_5, fan_40mm, fan_80mm, c14_socket, keystone_rj45, din_rail_35mm, mean_well_rs25, "
+        "mean_well_lrs35, iphone_15_pro, iphone_15_pro_max, generic_phone, usb_c_plug, mikrotik_crs305, screw_m3, screw_m6) "
         "into the document for fit testing and clash detection."
     ),
     "inputSchema": {
@@ -534,16 +544,23 @@ INSERT_REFERENCE_DUMMY = {
             "dummy_type": {
                 "type": "string",
                 "enum": [
+                    "raspberry_pi_5",
+                    "fan_40mm",
+                    "fan_80mm",
+                    "c14_socket",
+                    "keystone_rj45",
+                    "din_rail_35mm",
+                    "mean_well_rs25",
+                    "mean_well_lrs35",
                     "iphone_15_pro",
                     "iphone_15_pro_max",
                     "generic_phone",
                     "usb_c_plug",
-                    "mean_well_rs25",
                     "mikrotik_crs305",
                     "screw_m3",
                     "screw_m6",
                 ],
-                "default": "iphone_15_pro",
+                "default": "raspberry_pi_5",
                 "description": "Reference component type.",
             },
             "placement": {
@@ -675,10 +692,10 @@ UNDO_REDO = {
 APPLY_SMART_FEATURE = {
     "name": "apply_smart_feature",
     "description": (
-        "Apply a high-level parametric engineering Smart Feature to a 3D model or create a standalone feature: "
+        "Apply a high-level parametric engineering Smart Feature (20 primitives) to a 3D model or create a standalone feature: "
         "honeycomb, slotted_grill, circular_perforation, heatset_boss (M2-M5), screw_hole, hex_nut_pocket, "
         "keystone_jack, c14_inlet, usb_port, fan_mount, rocker_switch, zip_tie_mount, velcro_slot, "
-        "cable_pass_through, stiffening_ribs, or gusset."
+        "cable_pass_through, stiffening_ribs, gusset, snap_fit, enclosure_lip, dovetail_joint, or mounting_ear."
     ),
     "inputSchema": {
         "type": "object",
@@ -702,6 +719,10 @@ APPLY_SMART_FEATURE = {
                     "cable_pass_through",
                     "stiffening_ribs",
                     "gusset",
+                    "snap_fit",
+                    "enclosure_lip",
+                    "dovetail_joint",
+                    "mounting_ear",
                 ],
                 "description": "Smart feature type.",
             },

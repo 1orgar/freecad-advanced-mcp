@@ -38,16 +38,16 @@ FreeCAD Advanced MCP equips AI assistants with 25 specialized engineering tools:
 | **Vision & GUI** | [`get_view`](#1-get_view) | Capture precision screenshots (`Isometric`, `Front`, `Top`, etc.) with `Flat Lines` styling and optimal framing. |
 | | [`get_multi_view`](#2-get_multi_view) | Capture 4 camera angles (`Isometric`, `Front`, `Top`, `Rear`) in a single atomic tool call. |
 | | [`get_section_view`](#14-get_section_view) | Non-destructive Coin3D cross-section clipping plane view without altering geometry. |
-| | [`export_viewer_html`](#15-export_viewer_html) | Zero-dependency interactive WebGL 3D CAD viewer for in-chat embeds (`<agent-embed>`) and standalone inspection with CAD edge rendering. |
+| | [`export_viewer_html`](#15-export_viewer_html) | Zero-dependency interactive WebGL 3D CAD viewer for in-chat embeds (`<agent-embed>`) with per-part colors, interactive **Explode** slider, and **Section** cut plane. |
 | | [`set_display_state`](#13-set_display_state) | Batch control object visibility, shading modes, Tip display, and ghosted transparency. |
-| **Smart Features & Modeling** | [`apply_smart_feature`](#3-apply_smart_feature) | Apply 16 semantic engineering primitives (honeycomb, heat-set bosses, grills, keystones, C14 inlets, ribs, zip-tie saddles). |
-| | [`cut_component_cavity`](#4-cut_component_cavity) | Carve component mounting pockets directly into solids with configurable 3D printing clearance. |
-| **DfAM (3D Printing)** | [`audit_wall_thickness`](#5-audit_wall_thickness) | Scan solids for thin walls (< 1.2 mm) that cause slicing gaps or fragile prints. |
-| | [`split_part_for_bed`](#6-split_part_for_bed) | Split oversized models to fit 3D printer build beds with interlocking alignment dowel sockets. |
-| | [`analyze_stability`](#16-analyze_stability) | Calculate base contact polygon convex hull, combined center of mass, and tipping angles. |
+| **Smart Features & Modeling** | [`apply_smart_feature`](#3-apply_smart_feature) | Apply 20 semantic engineering primitives (honeycomb, heat-set bosses, grills, keystones, C14 inlets, snap-fits, enclosure lips, dovetails, mounting ears, ribs). |
+| | [`cut_component_cavity`](#4-cut_component_cavity) | Carve exact component mounting profiles and screw holes into solids with configurable 3D printing clearance. |
+| **DfAM (3D Printing)** | [`audit_wall_thickness`](#5-audit_wall_thickness) | Scan planar and coaxial cylindrical walls for thin regions (< 1.2 mm) that cause slicing gaps or fragile prints. |
+| | [`split_part_for_bed`](#6-split_part_for_bed) | Split oversized models on X/Y/Z to fit 3D printer build beds with interlocking alignment dowel sockets. |
+| | [`analyze_stability`](#16-analyze_stability) | Calculate base contact polygon convex hull (including curved/cylindrical bases on XY/XZ/YZ), center of mass, and tipping angles. |
 | | [`check_overhangs`](#17-check_overhangs) | 3D printability analysis: overhang percentage below critical angle, Z-bounds, and support needs. |
 | **Inspection & Selection** | [`get_selection`](#7-get_selection) | Human-in-the-Loop selection inspector: reads clicked faces/edges with TNP-safe query criteria. |
-| | [`inspect_geometry`](#10-inspect_geometry) | Deep analysis: BoundingBox, volume, surface area, center of mass, and watertight/manifold verification. |
+| | [`inspect_geometry`](#10-inspect_geometry) | Deep analysis: BoundingBox, volume, estimated mass (PLA/ABS/Al), surface type breakdown, and manifold verification. |
 | | [`inspect_fasteners`](#18-inspect_fasteners) | Detect cylindrical features, match ISO metric fasteners (M2-M8), and measure hole/boss depths. |
 | | [`check_clearance`](#11-check_clearance) | Real-time interference detection and minimum 3D clearance distance calculation (`distToShape`). |
 | | [`diagnose_document`](#19-diagnose_document) | Deep health audit: recompute errors, Sketcher DoF, broken body Tips, and BRep topology defects. |
@@ -193,18 +193,19 @@ Captures multiple standard camera angles (`Isometric`, `Front`, `Top`, `Rear`) i
 
 ### 3. `apply_smart_feature`
 Semantic CAD primitive library for rapid engineering design without manual sketch constraints:
-- **Supported Features (16 primitives):**
+- **Supported Features (20 primitives):**
   - **Patterns:** `honeycomb` (hexagonal ventilation grid), `slotted_grill` (cooling louvers), `circular_perforation` (staggered hole mesh).
   - **Fasteners & Inserts:** `heatset_boss` (Ruthex/CNC Kitchen M2-M5 with anti-sink lead-in chamfer), `screw_hole` (DIN 912 counterbore & DIN 7991 countersink), `hex_nut_pocket` (captive hex nut trap).
   - **Cutouts & Ports:** `keystone_jack` (standard snap-in RJ45), `c14_inlet` (chassis IEC power socket with screw mounts), `usb_port` (USB-A & USB-C cutouts), `fan_mount` (40mm, 60mm, 80mm, 92mm, 120mm with fan grille & mounting holes), `rocker_switch` (snap-in AC power switch).
+  - **Enclosure & Assembly Joints:** `snap_fit` (cantilever snap-fit hook), `enclosure_lip` (perimeter tongue & groove mating rim), `dovetail_joint` (sliding 45°/60° male/female dovetail), `mounting_ear` (flanged mounting ear with stadium slots).
   - **Cable Management:** `zip_tie_mount` (saddle & flush tie bridges), `velcro_slot` (cable cinch slots), `cable_pass_through` (beveled grommet passthrough).
   - **Structural Reinforcement:** `stiffening_ribs` (flanged strengthening ribs), `gusset` (corner reinforcement web).
 - **Parameters:**
   - `feature_type` *(string, required)*
   - `target_object` *(string, optional)*: Part or Body to modify.
-  - `operation` *(string)*: `cut` (subtractive/pocket), `fuse` (additive/union), or `new_object` (standalone).
+  - `operation` *(string, optional)*: `cut` (subtractive/pocket), `fuse` (additive/union), or `new_object` (standalone). Auto-inferred from feature type if omitted.
   - `parameters` *(object)*: Feature-specific dimensions (`bounds_w`, `cell_size`, `thread`, `boss_height`, etc.).
-  - `placement` *(object)*: `{"position": [x,y,z], "rotation": [yaw,pitch,roll]}`.
+  - `placement` *(object)*: `{"position": [x,y,z], "rotation": [yaw,pitch,roll], "normal": [nx,ny,nz]}`.
 
 ### 4. `cut_component_cavity`
 Carves an exact negative mounting pocket for a hardware dummy with configurable 3D printing clearance:
@@ -263,17 +264,17 @@ Controls rendering styling across the scene: body visibility, Tip display, sketc
 Captures non-destructive cross-section cut views using native Coin3D clipping planes (`XY`, `XZ`, `YZ`, or custom normal vector).
 
 ### 15. `export_viewer_html`
-Exports the 3D model into an interactive WebGL 2.0 CAD viewer. Zero external 3D engine dependencies (completely immune to strict CSP restrictions).
+Exports the 3D model into an interactive WebGL CAD viewer. Zero external 3D engine dependencies (completely immune to strict CSP restrictions).
 - **Parameters:**
-  - `object_name` *(string, required)*: Solid body or `Part::Compound` assembly.
+  - `object_name` *(string, optional)*: Solid body, `Part::Compound` assembly, or `"all"` to export all visible solids in the document.
   - `mode` *(string)*: `"chat"` (compact inline card `< 450px` for chat embeds via `<agent-embed>`, theme-adaptive) or `"standalone"` (full-window CAD viewer with HUD). Default: `"standalone"`.
   - `output_path` *(string, optional)*: Destination `.html` path.
   - `title` *(string, optional)*: Viewer header title.
   - `linear_deflection` / `angular_deflection` *(float)*: OCCT tessellation mesh resolution.
-- **Features:** Orbital rotation, smooth panning/zooming, CAD wireframe edge rendering, multi-part exploded assembly compounds, and automatic dark/light theme switching.
+- **Features:** Per-part RGB color rendering (`aColor`), interactive **Explode** slider (`aExplode`) for multi-solid assemblies, live **Section** clipping plane with interior highlight, CAD wireframe edge rendering, and automatic dark/light theme switching.
 
 ### 16. `analyze_stability`
-Calculates 2D base contact polygon convex hull, combined center of mass (with optional device payload), and tipping angles in all 4 cardinal directions.
+Calculates 2D base contact polygon convex hull (including discretized curved/cylindrical edges on `XY`, `XZ`, or `YZ`), combined center of mass (with optional device payload), and tipping angles in all 4 cardinal directions.
 
 ### 17. `check_overhangs`
 3D printability analysis: computes downward-facing surface areas, overhang percentage below critical angle (e.g. 45°), Z-bounds, and support necessity.
@@ -291,10 +292,12 @@ Returns the active document structure with object hierarchy, labels, and visibil
 Lifecycle management: `list`, `new`, `open`, `save`, `close`, `recompute`.
 
 ### 22. `undo_redo`
-Undo or redo operations in FreeCAD.
+Undo or redo operations in FreeCAD (all mutating MCP tool calls are automatically wrapped in FreeCAD transactions).
 
 ### 23. `execute_python` & `cad` Helpers
-Runs Python scripts directly inside FreeCAD. Pre-binds `FreeCAD`, `App`, `FreeCADGui`, `Gui`, `Part`, `Sketcher`, and TNP-safe `cad` utilities (`find_face`, `find_edges`, `add_rigid_rect`, `add_slot`). Wrapped in automatic transactions.
+Runs Python scripts directly inside FreeCAD. Pre-binds `FreeCAD`, `App`, `FreeCADGui`, `Gui`, `Part`, `PartDesign`, `Sketcher`, `Mesh`, `MeshPart`, `math`, and TNP-safe `cad` utilities:
+- **Topology & Sketch Helpers:** `find_face`, `find_edges`, `add_rigid_rect`, `add_slot`.
+- **High-Speed Solid Modeling:** `rounded_box`, `safe_fillet`, `safe_chamfer`, `boolean_chain` (with `removeSplitter()` refinement), `linear_pattern`, `polar_pattern`, `shell_solid`, `align_to`.
 
 ### 24. `execute_python_file`
 Executes local `.py` script files in FreeCAD.

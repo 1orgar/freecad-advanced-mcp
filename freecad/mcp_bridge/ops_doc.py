@@ -85,7 +85,7 @@ def manage_document(action="list", document_name=None, file_path=None):
 
     if act == "set_active":
         FreeCAD.setActiveDocument(doc)
-        if FreeCADGui.getDocument(doc.Name):
+        if hasattr(FreeCADGui, "getDocument") and FreeCADGui.getDocument(doc.Name):
             FreeCADGui.setActiveDocument(doc)
         return {
             "status": "ok",

@@ -43,13 +43,36 @@ def analyze_stability(
         return {"error": f"Object '{object_name}' has no valid Shape."}
 
     bb = shape.BoundBox
-    z_base = bb.ZMin
+    plane_norm = (base_plane or "XY").strip().upper()
+    tol_val = float(z_tolerance)
 
-    # Extract contact points near the base
+    def _coords_for_plane(pt):
+        if plane_norm == "XZ":
+            return (pt.x, pt.z, pt.y)
+        elif plane_norm == "YZ":
+            return (pt.y, pt.z, pt.x)
+        return (pt.x, pt.y, pt.z)
+
+    base_level = bb.YMin if plane_norm == "XZ" else (bb.XMin if plane_norm == "YZ" else bb.ZMin)
+
+    # Extract contact points near the base from both vertices and discretized curved edges
     contact_pts = []
     for v in shape.Vertexes:
-        if abs(v.Z - z_base) <= float(z_tolerance):
-            contact_pts.append((round(v.X, 3), round(v.Y, 3)))
+        u, w, h_coord = _coords_for_plane(v.Point)
+        if abs(h_coord - base_level) <= tol_val:
+            contact_pts.append((round(u, 3), round(w, 3)))
+
+    for e in shape.Edges:
+        ebb = e.BoundBox
+        e_min = ebb.YMin if plane_norm == "XZ" else (ebb.XMin if plane_norm == "YZ" else ebb.ZMin)
+        if abs(e_min - base_level) <= tol_val:
+            try:
+                for pt in e.discretize(Number=16):
+                    u, w, h_coord = _coords_for_plane(pt)
+                    if abs(h_coord - base_level) <= tol_val:
+                        contact_pts.append((round(u, 3), round(w, 3)))
+            except Exception:
+                pass
 
     if not contact_pts:
         return {"error": "No base contact points found within tolerance."}
@@ -85,8 +108,11 @@ def analyze_stability(
         total_mass = obj_mass_kg
         eff_com = obj_com
 
+    com_u, com_w, com_h = _coords_for_plane(eff_com)
+    z_base = base_level
+
     # Height above base
-    h = eff_com.z - z_base
+    h = com_h - z_base
     if h <= 0.01:
         h = 0.01
 
@@ -110,8 +136,8 @@ def analyze_stability(
         ny = -dx / edge_len
 
         # Vector from p1 to CoM
-        vx = eff_com.x - p1[0]
-        vy = eff_com.y - p1[1]
+        vx = com_u - p1[0]
+        vy = com_w - p1[1]
 
         # Outward projection: positive means CoM is outside the hull
         proj_out = vx * nx + vy * ny
@@ -152,6 +178,8 @@ def analyze_stability(
         "document": doc.Name,
         "object": obj.Name,
         "is_stable": is_stable,
+        "footprint_area_mm2": round(hull_area, 2),
+        "min_tipping_margin_mm": round(min((e["dist_to_edge_mm"] for e in tipping_angles), default=0.0), 2),
         "base_support": {
             "z_level_mm": round(z_base, 2),
             "contact_points_count": len(contact_pts),
@@ -407,29 +435,39 @@ def audit_wall_thickness(
     thin_regions = []
     min_found = float("inf")
 
-    # Inspect opposing planar faces
-    faces = [f for f in shape.Faces if f.Surface.TypeId == "Part::GeomPlane"]
-    for i, f1 in enumerate(faces):
+    # 1. Inspect opposing planar faces with 3D BoundingBox overlap check
+    planar_faces = [f for f in shape.Faces if f.Surface.TypeId == "Part::GeomPlane"]
+    for i, f1 in enumerate(planar_faces):
         try:
             n1 = f1.normalAt(0, 0)
             c1 = f1.CenterOfMass
+            bb1 = f1.BoundBox
         except Exception:
             continue
 
-        for f2 in faces[i + 1:]:
+        for f2 in planar_faces[i + 1:]:
             try:
                 n2 = f2.normalAt(0, 0)
                 dot = n1.x * n2.x + n1.y * n2.y + n1.z * n2.z
                 if dot < -0.98:  # antiparallel within ~11 degrees
+                    # Verify the vector from f1 to f2 points into the solid (opposite to outward normal n1)
                     diff = FreeCAD.Vector(f2.CenterOfMass.x - c1.x, f2.CenterOfMass.y - c1.y, f2.CenterOfMass.z - c1.z)
-                    dist = abs(diff.x * n1.x + diff.y * n1.y + diff.z * n1.z)
+                    proj = diff.x * n1.x + diff.y * n1.y + diff.z * n1.z
+                    dist = abs(proj)
 
-                    if 0.05 < dist < min_t:
-                        tangent_dist = math.sqrt(max(0.0, diff.Length**2 - dist**2))
-                        max_diag = max(math.sqrt(f1.Area), math.sqrt(f2.Area))
-                        if tangent_dist < max_diag * 1.5:
+                    if 0.05 < dist < min_t and proj < 0:
+                        # Check expanded BoundingBox overlap so distant coplanar wall segments are ignored
+                        bb2 = f2.BoundBox
+                        pad = min_t + 0.5
+                        overlaps = not (
+                            bb1.XMax + pad < bb2.XMin or bb1.XMin - pad > bb2.XMax or
+                            bb1.YMax + pad < bb2.YMin or bb1.YMin - pad > bb2.YMax or
+                            bb1.ZMax + pad < bb2.ZMin or bb1.ZMin - pad > bb2.ZMax
+                        )
+                        if overlaps:
                             min_found = min(min_found, dist)
                             thin_regions.append({
+                                "type": "planar_wall",
                                 "thickness_mm": round(dist, 3),
                                 "location": [round(c1.x, 2), round(c1.y, 2), round(c1.z, 2)],
                                 "normal": [round(n1.x, 3), round(n1.y, 3), round(n1.z, 3)],
@@ -438,10 +476,43 @@ def audit_wall_thickness(
             except Exception:
                 continue
 
+    # 2. Inspect coaxial cylindrical walls (bosses, tubes, sleeves)
+    cyl_faces = [f for f in shape.Faces if f.Surface.TypeId == "Part::GeomCylinder"]
+    for i, cf1 in enumerate(cyl_faces):
+        try:
+            s1 = cf1.Surface
+            ax1 = s1.Axis
+            loc1 = s1.Center
+            r1 = s1.Radius
+        except Exception:
+            continue
+        for cf2 in cyl_faces[i + 1:]:
+            try:
+                s2 = cf2.Surface
+                ax2 = s2.Axis
+                if abs(ax1.dot(ax2)) > 0.99:
+                    # Distance between cylinder axes
+                    d_vec = s2.Center - loc1
+                    cross_len = d_vec.cross(ax1).Length
+                    if cross_len < 0.2:
+                        wall_t = abs(s2.Radius - r1)
+                        if 0.05 < wall_t < min_t:
+                            c = cf1.CenterOfMass
+                            min_found = min(min_found, wall_t)
+                            thin_regions.append({
+                                "type": "cylindrical_wall",
+                                "thickness_mm": round(wall_t, 3),
+                                "location": [round(c.x, 2), round(c.y, 2), round(c.z, 2)],
+                                "normal": [round(ax1.x, 3), round(ax1.y, 3), round(ax1.z, 3)],
+                                "area_mm2": round(min(cf1.Area, cf2.Area), 2),
+                            })
+            except Exception:
+                continue
+
     # Deduplicate overlapping regions
     unique_thin = []
-    for r in thin_regions:
-        if not any(math.dist(r["location"], u["location"]) < 5.0 for u in unique_thin):
+    for r in sorted(thin_regions, key=lambda x: x["thickness_mm"]):
+        if not any(math.dist(r["location"], u["location"]) < 4.0 for u in unique_thin):
             unique_thin.append(r)
 
     is_safe = len(unique_thin) == 0
@@ -449,11 +520,13 @@ def audit_wall_thickness(
         "status": "ok",
         "document": doc.Name,
         "object": obj.Name,
+        "passed": is_safe,
         "min_thickness_threshold_mm": min_t,
         "min_detected_thickness_mm": round(min_found, 3) if min_found < float("inf") else None,
         "safe_for_printing": is_safe,
         "thin_regions_count": len(unique_thin),
         "thin_regions": unique_thin[:10],
+        "thin_wall_warnings": unique_thin[:10],
         "recommendation": "All walls meet minimum FDM threshold." if is_safe else f"Found {len(unique_thin)} thin wall regions < {min_t}mm that may cause slicing gaps or weak parts.",
     }
 
@@ -465,6 +538,10 @@ def split_part_for_bed(
     joint_type="dowel",
     clearance=0.2,
     document_name=None,
+    split_offset=None,
+    add_alignment_pins=None,
+    pin_diameter=3.5,
+    pin_length=24.0,
 ):
     """Split oversized part to fit 3D printer build bed with interlocking joints.
 
@@ -475,6 +552,7 @@ def split_part_for_bed(
     - joint_type: "dowel" (pin holes for alignment pins) or "flat".
     - clearance: Joint tolerance in mm (default 0.2).
     - document_name: Optional document name.
+    - split_offset: Optional explicit split coordinate along split_axis (forces split).
     """
     doc = _resolve_doc(document_name)
     if not doc:
@@ -492,15 +570,23 @@ def split_part_for_bed(
     axis = split_axis.upper()
     size_on_axis = bb.XLength if axis == "X" else (bb.YLength if axis == "Y" else bb.ZLength)
 
-    if size_on_axis <= float(max_bed_size):
+    if split_offset is None and size_on_axis <= float(max_bed_size):
         return {
             "status": "ok",
             "message": f"Object size on {axis} ({size_on_axis:.1f} mm) already fits within {max_bed_size:.1f} mm bed.",
             "split_performed": False,
         }
 
-    # Split coordinate at midpoint
-    split_coord = (bb.XMin + bb.XMax) / 2.0 if axis == "X" else ((bb.YMin + bb.YMax) / 2.0 if axis == "Y" else (bb.ZMin + bb.ZMax) / 2.0)
+    if add_alignment_pins is False:
+        joint_type = "flat"
+    elif add_alignment_pins is True:
+        joint_type = "dowel"
+
+    # Split coordinate at explicit offset or midpoint
+    if split_offset is not None:
+        split_coord = float(split_offset)
+    else:
+        split_coord = (bb.XMin + bb.XMax) / 2.0 if axis == "X" else ((bb.YMin + bb.YMax) / 2.0 if axis == "Y" else (bb.ZMin + bb.ZMax) / 2.0)
 
     margin = 50.0
     big_box_w = bb.XLength + 2.0 * margin
@@ -527,21 +613,40 @@ def split_part_for_bed(
     part_b = shape.common(box_b)
 
     if joint_type == "dowel":
-        pin_r = 1.75  # 3.5 mm pin
-        pin_depth = 12.0
+        pin_r = (float(pin_diameter) * 0.5) + float(clearance) * 0.5
+        pin_depth = float(pin_length) * 0.5
+        cx_mid = (bb.XMin + bb.XMax) / 2.0
         cy_mid = (bb.YMin + bb.YMax) / 2.0
         cz_mid = (bb.ZMin + bb.ZMax) / 2.0
 
         if axis == "X":
-            pin1 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid - 15.0, cz_mid), FreeCAD.Vector(1, 0, 0))
-            pin2 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid + 15.0, cz_mid), FreeCAD.Vector(1, 0, 0))
-            part_a = part_a.cut(pin1).cut(pin2)
-            part_b = part_b.cut(pin1).cut(pin2)
+            span = min(15.0, bb.YLength * 0.25)
+            pin1 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid - span, cz_mid), FreeCAD.Vector(1, 0, 0))
+            pin2 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(split_coord - pin_depth, cy_mid + span, cz_mid), FreeCAD.Vector(1, 0, 0))
+        elif axis == "Y":
+            span = min(15.0, bb.XLength * 0.25)
+            pin1 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(cx_mid - span, split_coord - pin_depth, cz_mid), FreeCAD.Vector(0, 1, 0))
+            pin2 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(cx_mid + span, split_coord - pin_depth, cz_mid), FreeCAD.Vector(0, 1, 0))
+        else:
+            span = min(15.0, bb.XLength * 0.25)
+            pin1 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(cx_mid - span, cy_mid, split_coord - pin_depth), FreeCAD.Vector(0, 0, 1))
+            pin2 = Part.makeCylinder(pin_r, pin_depth * 2, FreeCAD.Vector(cx_mid + span, cy_mid, split_coord - pin_depth), FreeCAD.Vector(0, 0, 1))
+
+        part_a = part_a.cut(pin1).cut(pin2)
+        part_b = part_b.cut(pin1).cut(pin2)
 
     obj_a = doc.addObject("Part::Feature", f"{obj.Label}_Part_A")
     obj_a.Shape = part_a
     obj_b = doc.addObject("Part::Feature", f"{obj.Label}_Part_B")
     obj_b.Shape = part_b
+
+    # Hide original oversized object to avoid visual overlap
+    try:
+        vo = getattr(obj, "ViewObject", None)
+        if vo:
+            vo.Visibility = False
+    except Exception:
+        pass
 
     doc.recompute()
 
@@ -551,13 +656,16 @@ def split_part_for_bed(
         "split_axis": axis,
         "split_coordinate": round(split_coord, 2),
         "joint_type": joint_type,
+        "alignment_pins": 2 if joint_type == "dowel" else 0,
         "part_a": {
             "name": obj_a.Name,
+            "is_valid": part_a.isValid(),
             "bounding_box": [round(part_a.BoundBox.XLength, 1), round(part_a.BoundBox.YLength, 1), round(part_a.BoundBox.ZLength, 1)],
             "fits_bed": max(part_a.BoundBox.XLength, part_a.BoundBox.YLength) <= max_bed_size,
         },
         "part_b": {
             "name": obj_b.Name,
+            "is_valid": part_b.isValid(),
             "bounding_box": [round(part_b.BoundBox.XLength, 1), round(part_b.BoundBox.YLength, 1), round(part_b.BoundBox.ZLength, 1)],
             "fits_bed": max(part_b.BoundBox.XLength, part_b.BoundBox.YLength) <= max_bed_size,
         },

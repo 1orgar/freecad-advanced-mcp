@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "freecad-advanced-mcp",
   "display_name": "FreeCAD Advanced MCP",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Connect Claude Desktop to a running FreeCAD session through the FreeCAD Advanced MCP addon.",
   "icon": "icon.png",
   "author": {

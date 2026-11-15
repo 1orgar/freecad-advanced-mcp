@@ -46,12 +46,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <canvas id="webgl-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
       
       <!-- Overlaid HUD Controls Bar -->
-      <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-[var(--card)]/85 backdrop-blur-md border border-[var(--border)] rounded-full px-3 py-1 shadow-lg text-xs z-10 select-none">
-        <button id="btn-reset" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-2 py-0.5 rounded transition">Reset</button>
+      <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-[var(--card)]/90 backdrop-blur-md border border-[var(--border)] rounded-full px-3 py-1 shadow-lg text-xs z-10 select-none max-w-[96%] overflow-x-auto">
+        <button id="btn-reset" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-1.5 py-0.5 rounded transition shrink-0">Reset</button>
         <span class="text-[var(--border)]">|</span>
-        <button id="btn-edges" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-2 py-0.5 rounded transition">Edges</button>
+        <button id="btn-edges" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-1.5 py-0.5 rounded transition shrink-0">Edges</button>
         <span class="text-[var(--border)]">|</span>
-        <button id="btn-rotate" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-2 py-0.5 rounded transition">Rotate</button>
+        <button id="btn-section" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-1.5 py-0.5 rounded transition shrink-0">Section</button>
+        <span class="text-[var(--border)]">|</span>
+        <button id="btn-rotate" class="hover:text-[var(--primary)] text-[var(--foreground)] font-medium px-1.5 py-0.5 rounded transition shrink-0">Rotate</button>
+        <div id="explode-wrap" class="hidden items-center gap-1.5 pl-1 border-l border-[var(--border)] shrink-0">
+          <span class="text-[10px] text-[var(--muted-foreground)] font-mono">Explode</span>
+          <input id="slider-explode" type="range" min="-0.75" max="1.25" step="0.02" value="0" class="w-16 h-1.5 accent-[var(--primary)] cursor-pointer">
+        </div>
       </div>
 
       <div id="webgl-fallback" class="hidden absolute inset-0 flex items-center justify-center text-sm text-red-400 bg-black/80"></div>
@@ -164,16 +170,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const vsFaceSource = `
       attribute vec3 aPos;
       attribute vec3 aNorm;
+      attribute vec3 aColor;
+      attribute vec3 aExplode;
       uniform mat4 uMVP;
       uniform mat4 uMV;
       uniform mat3 uNormMat;
+      uniform float uExplode;
       varying vec3 vNorm;
       varying vec3 vPos;
+      varying vec3 vWorldPos;
+      varying vec3 vColor;
       void main() {
-        vec4 mvPos = uMV * vec4(aPos, 1.0);
+        vec3 displaced = aPos + aExplode * uExplode;
+        vec4 mvPos = uMV * vec4(displaced, 1.0);
         vPos = mvPos.xyz;
+        vWorldPos = displaced;
         vNorm = normalize(uNormMat * aNorm);
-        gl_Position = uMVP * vec4(aPos, 1.0);
+        vColor = aColor;
+        gl_Position = uMVP * vec4(displaced, 1.0);
       }
     `;
 
@@ -181,37 +195,55 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       precision mediump float;
       varying vec3 vNorm;
       varying vec3 vPos;
-      uniform vec3 uColor;
+      varying vec3 vWorldPos;
+      varying vec3 vColor;
+      uniform vec3 uDefaultColor;
+      uniform float uHasCustomColors;
+      uniform float uClipEnabled;
       uniform vec3 uLight1;
       uniform vec3 uLight2;
       uniform float uAmbient;
       void main() {
+        if (uClipEnabled > 0.5 && vWorldPos.x > 0.0) discard;
         vec3 n = normalize(vNorm);
-        if (!gl_FrontFacing) n = -n;
+        bool isBack = !gl_FrontFacing;
+        if (isBack) n = -n;
+        vec3 baseCol = (uHasCustomColors > 0.5) ? vColor : uDefaultColor;
+        if (uClipEnabled > 0.5 && isBack) {
+          baseCol = mix(baseCol, vec3(0.92, 0.42, 0.20), 0.65);
+        }
         vec3 l1 = normalize(uLight1);
         vec3 l2 = normalize(uLight2);
         float diff1 = max(dot(n, l1), 0.0) * 0.72;
         float diff2 = max(dot(n, l2), 0.0) * 0.32;
         vec3 v = normalize(-vPos);
         vec3 h1 = normalize(l1 + v);
-        float spec = pow(max(dot(n, h1), 0.0), 28.0) * 0.28;
-        vec3 col = uColor * (uAmbient + diff1 + diff2) + vec3(spec);
+        float spec = pow(max(dot(n, h1), 0.0), 28.0) * 0.25;
+        vec3 col = baseCol * (uAmbient + diff1 + diff2) + vec3(spec);
         gl_FragColor = vec4(col, 1.0);
       }
     `;
 
     const vsLineSource = `
       attribute vec3 aPos;
+      attribute vec3 aExplode;
       uniform mat4 uMVP;
+      uniform float uExplode;
+      varying vec3 vWorldPos;
       void main() {
-        gl_Position = uMVP * vec4(aPos, 1.0);
+        vec3 displaced = aPos + aExplode * uExplode;
+        vWorldPos = displaced;
+        gl_Position = uMVP * vec4(displaced, 1.0);
       }
     `;
 
     const fsLineSource = `
       precision mediump float;
+      varying vec3 vWorldPos;
       uniform vec4 uLineColor;
+      uniform float uClipEnabled;
       void main() {
+        if (uClipEnabled > 0.5 && vWorldPos.x > 0.0) discard;
         gl_FragColor = uLineColor;
       }
     `;
@@ -242,9 +274,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     // --- State & Setup ---
     let gl, faceProg, lineProg;
-    let posBuffer, normBuffer, indexBuffer, indexType, indexCount;
-    let edgeBuffer = null, edgeCount = 0;
-    let showEdges = true, autoRotate = false;
+    let posBuffer, normBuffer, colorBuffer, explodeBuffer, indexBuffer, indexType, indexCount;
+    let edgeBuffer = null, edgeExplodeBuffer = null, edgeCount = 0;
+    let showEdges = true, autoRotate = false, clipEnabled = false, explodeFactor = 0.0;
 
     const maxDim = Math.max(MODEL.dimensions.x, MODEL.dimensions.y, MODEL.dimensions.z) || 50;
     let target = [0, 0, 0];
@@ -262,6 +294,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         return;
       }
 
+      if (MODEL.stats && MODEL.stats.solidsCount > 1) {
+        const expWrap = document.getElementById('explode-wrap');
+        if (expWrap) {
+          expWrap.classList.remove('hidden');
+          expWrap.classList.add('flex');
+        }
+      }
+
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
 
@@ -273,6 +313,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const fsLine = createShader(gl, gl.FRAGMENT_SHADER, fsLineSource);
       lineProg = createProgram(gl, vsLine, fsLine);
 
+      const vCount = MODEL.vertices.length / 3;
+
       // Face buffers
       posBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -282,8 +324,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(MODEL.normals), gl.STATIC_DRAW);
 
+      const colorsArr = (MODEL.colors && MODEL.colors.length === MODEL.vertices.length)
+        ? new Float32Array(MODEL.colors)
+        : new Float32Array(vCount * 3);
+      colorBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, colorsArr, gl.STATIC_DRAW);
+
+      const explodeArr = (MODEL.explodeVectors && MODEL.explodeVectors.length === MODEL.vertices.length)
+        ? new Float32Array(MODEL.explodeVectors)
+        : new Float32Array(vCount * 3);
+      explodeBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, explodeBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, explodeArr, gl.STATIC_DRAW);
+
       const extUint = gl.getExtension('OES_element_index_uint');
-      const useUint = extUint && (MODEL.vertices.length / 3 > 65535);
+      const useUint = extUint && (vCount > 65535);
       indexBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       if (useUint) {
@@ -301,6 +357,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         gl.bindBuffer(gl.ARRAY_BUFFER, edgeBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(MODEL.edges), gl.STATIC_DRAW);
         edgeCount = MODEL.edges.length / 3;
+
+        const edgeExpArr = (MODEL.edgeExplodeVectors && MODEL.edgeExplodeVectors.length === MODEL.edges.length)
+          ? new Float32Array(MODEL.edgeExplodeVectors)
+          : new Float32Array(MODEL.edges.length);
+        edgeExplodeBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, edgeExplodeBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, edgeExpArr, gl.STATIC_DRAW);
       }
 
       setupInteraction(canvas);
@@ -342,6 +405,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const isLight = document.documentElement.classList.contains('light');
       const meshColor = isLight ? [0.65, 0.72, 0.82] : [0.42, 0.52, 0.65];
       const lineColor = isLight ? [0.10, 0.14, 0.22, 0.95] : [0.06, 0.09, 0.15, 0.95];
+      const hasCustomColors = (MODEL.hasCustomColors && MODEL.colors && MODEL.colors.length > 0) ? 1.0 : 0.0;
 
       // Draw Faces
       gl.useProgram(faceProg);
@@ -349,7 +413,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gl.uniformMatrix4fv(gl.getUniformLocation(faceProg, "uMV"), false, vMat);
       gl.uniformMatrix3fv(gl.getUniformLocation(faceProg, "uNormMat"), false, normMat);
 
-      gl.uniform3f(gl.getUniformLocation(faceProg, "uColor"), meshColor[0], meshColor[1], meshColor[2]);
+      gl.uniform3f(gl.getUniformLocation(faceProg, "uDefaultColor"), meshColor[0], meshColor[1], meshColor[2]);
+      gl.uniform1f(gl.getUniformLocation(faceProg, "uHasCustomColors"), hasCustomColors);
+      gl.uniform1f(gl.getUniformLocation(faceProg, "uClipEnabled"), clipEnabled ? 1.0 : 0.0);
+      gl.uniform1f(gl.getUniformLocation(faceProg, "uExplode"), explodeFactor);
       gl.uniform3f(gl.getUniformLocation(faceProg, "uLight1"), 1.0, 1.8, 1.2);
       gl.uniform3f(gl.getUniformLocation(faceProg, "uLight2"), -1.0, -0.8, -1.0);
       gl.uniform1f(gl.getUniformLocation(faceProg, "uAmbient"), isLight ? 0.42 : 0.35);
@@ -364,6 +431,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
       gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
 
+      const aColor = gl.getAttribLocation(faceProg, "aColor");
+      if (aColor >= 0) {
+        gl.enableVertexAttribArray(aColor);
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+      }
+
+      const aExplode = gl.getAttribLocation(faceProg, "aExplode");
+      if (aExplode >= 0) {
+        gl.enableVertexAttribArray(aExplode);
+        gl.bindBuffer(gl.ARRAY_BUFFER, explodeBuffer);
+        gl.vertexAttribPointer(aExplode, 3, gl.FLOAT, false, 0, 0);
+      }
+
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 
       // Enable polygon offset for faces to give depth buffer precedence to lines
@@ -377,11 +458,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         gl.useProgram(lineProg);
         gl.uniformMatrix4fv(gl.getUniformLocation(lineProg, "uMVP"), false, mvp);
         gl.uniform4f(gl.getUniformLocation(lineProg, "uLineColor"), lineColor[0], lineColor[1], lineColor[2], lineColor[3]);
+        gl.uniform1f(gl.getUniformLocation(lineProg, "uExplode"), explodeFactor);
+        gl.uniform1f(gl.getUniformLocation(lineProg, "uClipEnabled"), clipEnabled ? 1.0 : 0.0);
 
         const aLinePos = gl.getAttribLocation(lineProg, "aPos");
         gl.enableVertexAttribArray(aLinePos);
         gl.bindBuffer(gl.ARRAY_BUFFER, edgeBuffer);
         gl.vertexAttribPointer(aLinePos, 3, gl.FLOAT, false, 0, 0);
+
+        const aLineExp = gl.getAttribLocation(lineProg, "aExplode");
+        if (aLineExp >= 0 && edgeExplodeBuffer) {
+          gl.enableVertexAttribArray(aLineExp);
+          gl.bindBuffer(gl.ARRAY_BUFFER, edgeExplodeBuffer);
+          gl.vertexAttribPointer(aLineExp, 3, gl.FLOAT, false, 0, 0);
+        }
 
         gl.drawArrays(gl.LINES, 0, edgeCount);
       }
@@ -479,6 +569,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         radius = defaultRadius;
         theta = Math.PI / 4;
         phi = Math.PI / 3;
+        explodeFactor = 0.0;
+        const sl = document.getElementById("slider-explode");
+        if (sl) sl.value = "0";
       });
 
       document.getElementById("btn-edges").addEventListener("click", (e) => {
@@ -486,10 +579,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         e.target.style.opacity = showEdges ? "1.0" : "0.5";
       });
 
+      document.getElementById("btn-section").addEventListener("click", (e) => {
+        clipEnabled = !clipEnabled;
+        e.target.style.color = clipEnabled ? "var(--primary)" : "var(--foreground)";
+      });
+
       document.getElementById("btn-rotate").addEventListener("click", (e) => {
         autoRotate = !autoRotate;
         e.target.style.color = autoRotate ? "var(--primary)" : "var(--foreground)";
       });
+
+      const sliderExplode = document.getElementById("slider-explode");
+      if (sliderExplode) {
+        sliderExplode.addEventListener("input", (e) => {
+          explodeFactor = parseFloat(e.target.value) || 0.0;
+        });
+      }
     }
 
     window.addEventListener("DOMContentLoaded", initWebGL);
@@ -497,6 +602,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+_CAD_PALETTE = [
+    (0.42, 0.56, 0.72),  # Slate Blue
+    (0.36, 0.66, 0.44),  # Emerald Green
+    (0.84, 0.52, 0.26),  # Warm Amber
+    (0.30, 0.62, 0.76),  # Cyan Manifold
+    (0.58, 0.44, 0.72),  # Violet
+    (0.78, 0.36, 0.40),  # Crimson
+    (0.45, 0.48, 0.52),  # Charcoal
+]
+
+
+def _extract_obj_color(obj):
+    """Return (r, g, b) tuple from FreeCAD ViewObject.ShapeColor or None if default grey."""
+    try:
+        vo = getattr(obj, "ViewObject", None)
+        if vo and hasattr(vo, "ShapeColor"):
+            sc = vo.ShapeColor
+            if len(sc) >= 3:
+                r, g, b = float(sc[0]), float(sc[1]), float(sc[2])
+                # FreeCAD default grey is ~(0.8, 0.8, 0.8)
+                if abs(r - 0.8) > 0.03 or abs(g - 0.8) > 0.03 or abs(b - 0.8) > 0.03:
+                    return (round(r, 3), round(g, 3), round(b, 3))
+    except Exception:
+        pass
+    return None
 
 
 def export_viewer_html(
@@ -507,109 +639,186 @@ def export_viewer_html(
     title=None,
     mode="chat",
 ):
-    """Export 3D object to a self-contained, zero-dependency interactive WebGL HTML viewer.
+    """Export 3D object or multi-part assembly to a self-contained WebGL HTML viewer.
 
     Parameters:
-    - object_name: Optional target object name (defaults to active object or first Body).
+    - object_name: Optional target object name, or "all" to export all visible solids with colors.
     - document_name: Optional FreeCAD document name.
     - output_path: Optional destination .html file path.
     - linear_deflection: Mesh tessellation chordal deflection in mm (default 0.3).
     - title: Optional viewer window title.
     - mode: "chat" (compact inline embed card < 450px) or "standalone" (fullscreen).
     """
+    import Part
     doc = _resolve_doc(document_name)
     if not doc:
         return {"error": "No open FreeCAD document available."}
 
+    # Build lookup of document object colors by BoundingBox center for compound sub-solid matching
+    doc_solid_colors = []
+    for o in doc.Objects:
+        sh = getattr(o, "Shape", None)
+        if sh and not sh.isNull() and len(sh.Solids) == 1:
+            col = _extract_obj_color(o)
+            if col:
+                c = sh.BoundBox.Center
+                doc_solid_colors.append((c, col))
+
     obj = None
-    if object_name:
-        obj = doc.getObject(object_name)
+    solids_with_colors = []
+    has_custom_colors = False
+
+    if object_name and str(object_name).strip().lower() == "all":
+        sub_feats = set()
+        for b in doc.Objects:
+            if b.isDerivedFrom("PartDesign::Body"):
+                for f in getattr(b, "Group", []):
+                    sub_feats.add(f.Name)
+        for o in doc.Objects:
+            if o.Name in sub_feats or o.isDerivedFrom("Sketcher::SketchObject"):
+                continue
+            vo = getattr(o, "ViewObject", None)
+            if vo and not getattr(vo, "Visibility", True):
+                continue
+            sh = getattr(o, "Shape", None)
+            if sh and not sh.isNull() and len(sh.Solids) > 0:
+                col = _extract_obj_color(o)
+                if col:
+                    has_custom_colors = True
+                for s in sh.Solids:
+                    solids_with_colors.append((s, col))
+        obj_label = "Assembly"
+        obj_name_str = "All_Visible"
     else:
-        obj = getattr(doc, "ActiveObject", None)
+        if object_name:
+            obj = doc.getObject(object_name)
+        else:
+            obj = getattr(doc, "ActiveObject", None)
+            if not obj:
+                for o in doc.Objects:
+                    if hasattr(o, "Shape") and not o.Shape.isNull():
+                        obj = o
+                        break
         if not obj:
-            for o in doc.Objects:
-                if hasattr(o, "Shape") and not o.Shape.isNull():
-                    obj = o
-                    break
+            return {"error": "No valid 3D object found to export to 3D HTML."}
 
-    if not obj:
-        return {"error": "No valid 3D object found to export to 3D HTML."}
+        shape = getattr(obj, "Shape", None)
+        if shape is None or shape.isNull():
+            return {"error": f"Object '{obj.Name}' has no valid Shape."}
 
-    shape = getattr(obj, "Shape", None)
-    if shape is None or shape.isNull():
-        return {"error": f"Object '{obj.Name}' has no valid Shape."}
+        obj_col = _extract_obj_color(obj)
+        if obj_col:
+            has_custom_colors = True
 
-    # Tessellate shape to faces
-    lin_defl = max(0.05, float(linear_deflection))
-    pts, tris = shape.tessellate(lin_defl)
-    bb = shape.BoundBox
+        solids_list = list(shape.Solids) if len(shape.Solids) > 0 else [shape]
+        for idx, s in enumerate(solids_list):
+            matched_col = obj_col
+            if matched_col is None and len(solids_list) > 1:
+                sc = s.BoundBox.Center
+                for ref_c, ref_col in doc_solid_colors:
+                    if sc.distanceToPoint(ref_c) < 1.0:
+                        matched_col = ref_col
+                        has_custom_colors = True
+                        break
+                if matched_col is None:
+                    matched_col = _CAD_PALETTE[idx % len(_CAD_PALETTE)]
+                    has_custom_colors = True
+            solids_with_colors.append((s, matched_col or (0.48, 0.58, 0.72)))
 
-    # Center of bounding box
+        obj_label = getattr(obj, "Label", obj.Name)
+        obj_name_str = obj.Name
+
+    if not solids_with_colors:
+        return {"error": "No valid 3D solids found to export."}
+
+    if len(solids_with_colors) > 1:
+        has_custom_colors = True
+
+    comp_shape = Part.Compound([s for s, _ in solids_with_colors])
+    bb = comp_shape.BoundBox
     cx, cy, cz = bb.Center.x, bb.Center.y, bb.Center.z
 
-    # Transform coordinates from FreeCAD (X right, Y back, Z up) to WebGL (X right, Y up, Z front):
-    # (x, y, z) -> (x - cx, z - cz, -(y - cy))
+    lin_defl = max(0.05, float(linear_deflection))
+
     flat_verts = []
-    for p in pts:
-        flat_verts.extend([round(p.x - cx, 3), round(p.z - cz, 3), round(-(p.y - cy), 3)])
-
-    flat_indices = []
-    for t in tris:
-        flat_indices.extend([t[0], t[1], t[2]])
-
-    # Compute smoothed vertex normals in WebGL coordinates
-    normals = [[0.0, 0.0, 0.0] for _ in pts]
-    for t in tris:
-        p0 = pts[t[0]]
-        p1 = pts[t[1]]
-        p2 = pts[t[2]]
-        v1 = p1 - p0
-        v2 = p2 - p0
-        fn = v1.cross(v2)
-        l = fn.Length
-        if l > 1e-6:
-            fn = fn * (1.0 / l)
-            for idx in t:
-                normals[idx][0] += fn.x
-                normals[idx][1] += fn.y
-                normals[idx][2] += fn.z
-
     flat_normals = []
-    for n in normals:
-        l = math.hypot(n[0], n[1], n[2])
-        if l > 1e-6:
-            flat_normals.extend([round(n[0] / l, 3), round(n[2] / l, 3), round(-n[1] / l, 3)])
-        else:
-            flat_normals.extend([0.0, 1.0, 0.0])
-
-    # Discretize authentic CAD feature edges (no triangle diagonals!)
+    flat_colors = []
+    flat_explode = []
+    flat_indices = []
     flat_edges = []
-    edge_seg_count = 0
-    max_edge_segs = 12000
-    for e in shape.Edges:
-        if edge_seg_count >= max_edge_segs:
-            break
-        try:
-            e_pts = e.discretize(Deflection=max(lin_defl * 1.5, 0.2))
-            for i in range(len(e_pts) - 1):
-                p_a = e_pts[i]
-                p_b = e_pts[i + 1]
-                flat_edges.extend([
-                    round(p_a.x - cx, 3), round(p_a.z - cz, 3), round(-(p_a.y - cy), 3),
-                    round(p_b.x - cx, 3), round(p_b.z - cz, 3), round(-(p_b.y - cy), 3),
-                ])
-                edge_seg_count += 1
-                if edge_seg_count >= max_edge_segs:
-                    break
-        except Exception:
-            pass
+    flat_edge_explode = []
 
-    model_title = title or f"{doc.Name} - {getattr(obj, 'Label', obj.Name)}"
+    vert_offset = 0
+    edge_seg_count = 0
+    max_edge_segs = 14000
+    solids_cnt = len(solids_with_colors)
+
+    for s_idx, (solid, col) in enumerate(solids_with_colors):
+        col = col or _CAD_PALETTE[s_idx % len(_CAD_PALETTE)]
+        s_bb = solid.BoundBox
+        # Explosion vector in WebGL coords (X right, Y up, Z front)
+        ex = round(s_bb.Center.x - cx, 3)
+        ey = round(s_bb.Center.z - cz, 3)
+        ez = round(-(s_bb.Center.y - cy), 3)
+        if solids_cnt > 1 and math.hypot(ex, ey, ez) < 2.0:
+            # Fallback axial spread if parts share the exact same center
+            ey = round((s_idx - (solids_cnt - 1) / 2.0) * 25.0, 3)
+
+        pts, tris = solid.tessellate(lin_defl)
+        s_normals = [[0.0, 0.0, 0.0] for _ in pts]
+
+        for t in tris:
+            p0, p1, p2 = pts[t[0]], pts[t[1]], pts[t[2]]
+            fn = (p1 - p0).cross(p2 - p0)
+            l = fn.Length
+            if l > 1e-6:
+                fn = fn * (1.0 / l)
+                for idx in t:
+                    s_normals[idx][0] += fn.x
+                    s_normals[idx][1] += fn.y
+                    s_normals[idx][2] += fn.z
+            flat_indices.extend([t[0] + vert_offset, t[1] + vert_offset, t[2] + vert_offset])
+
+        for p, n in zip(pts, s_normals):
+            flat_verts.extend([round(p.x - cx, 3), round(p.z - cz, 3), round(-(p.y - cy), 3)])
+            nl = math.hypot(n[0], n[1], n[2])
+            if nl > 1e-6:
+                flat_normals.extend([round(n[0] / nl, 3), round(n[2] / nl, 3), round(-n[1] / nl, 3)])
+            else:
+                flat_normals.extend([0.0, 1.0, 0.0])
+            flat_colors.extend([col[0], col[1], col[2]])
+            flat_explode.extend([ex, ey, ez])
+
+        vert_offset += len(pts)
+
+        for e in solid.Edges:
+            if edge_seg_count >= max_edge_segs:
+                break
+            try:
+                e_pts = e.discretize(Deflection=max(lin_defl * 1.5, 0.2))
+                for i in range(len(e_pts) - 1):
+                    p_a = e_pts[i]
+                    p_b = e_pts[i + 1]
+                    flat_edges.extend([
+                        round(p_a.x - cx, 3), round(p_a.z - cz, 3), round(-(p_a.y - cy), 3),
+                        round(p_b.x - cx, 3), round(p_b.z - cz, 3), round(-(p_b.y - cy), 3),
+                    ])
+                    flat_edge_explode.extend([ex, ey, ez, ex, ey, ez])
+                    edge_seg_count += 1
+                    if edge_seg_count >= max_edge_segs:
+                        break
+            except Exception:
+                pass
+
+    model_title = title or f"{doc.Name} - {obj_label}"
+    tot_verts = vert_offset
+    tot_tris = len(flat_indices) // 3
 
     mesh_payload = {
         "title": model_title,
-        "objectName": obj.Name,
+        "objectName": obj_name_str,
         "documentName": doc.Name,
+        "hasCustomColors": bool(has_custom_colors),
         "dimensions": {
             "x": round(bb.XLength, 2),
             "y": round(bb.YLength, 2),
@@ -618,13 +827,17 @@ def export_viewer_html(
         "bboxCenter": [0.0, 0.0, 0.0],
         "vertices": flat_verts,
         "normals": flat_normals,
+        "colors": flat_colors if has_custom_colors else [],
+        "explodeVectors": flat_explode if solids_cnt > 1 else [],
         "indices": flat_indices,
         "edges": flat_edges,
+        "edgeExplodeVectors": flat_edge_explode if solids_cnt > 1 else [],
         "stats": {
-            "verticesCount": len(pts),
-            "trianglesCount": len(tris),
+            "solidsCount": solids_cnt,
+            "verticesCount": tot_verts,
+            "trianglesCount": tot_tris,
             "edgesCount": edge_seg_count,
-            "facesCount": len(shape.Faces),
+            "facesCount": len(comp_shape.Faces),
         },
     }
 
@@ -636,7 +849,7 @@ def export_viewer_html(
         export_dir = os.path.join(FreeCAD.getUserAppDataDir(), "mcp_exports")
         os.makedirs(export_dir, exist_ok=True)
         suffix = "chat_viewer" if render_mode == "chat" else "standalone_viewer"
-        output_path = os.path.join(export_dir, f"{doc.Name}_{obj.Name}_{suffix}.html")
+        output_path = os.path.join(export_dir, f"{doc.Name}_{obj_name_str}_{suffix}.html")
     else:
         out_dir = os.path.dirname(os.path.abspath(output_path))
         if out_dir:
@@ -648,13 +861,16 @@ def export_viewer_html(
     return {
         "status": "ok",
         "document": doc.Name,
-        "object": obj.Name,
+        "object": obj_name_str,
         "mode": render_mode,
+        "solids_count": solids_cnt,
+        "PartCount": solids_cnt,
+        "has_custom_colors": bool(has_custom_colors),
         "output_path": output_path,
         "embed_tag": f'<agent-embed src="file://{output_path}"></agent-embed>',
         "file_size_bytes": os.path.getsize(output_path),
-        "vertices_count": len(pts),
-        "triangles_count": len(tris),
+        "vertices_count": tot_verts,
+        "triangles_count": tot_tris,
         "edges_count": edge_seg_count,
         "dimensions_mm": [round(bb.XLength, 2), round(bb.YLength, 2), round(bb.ZLength, 2)],
     }
